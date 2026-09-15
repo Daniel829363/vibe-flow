@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+
+# Stage 1: Base image
+FROM python:3.13-slim AS base
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Stage 2: Build dependencies for production
+FROM base AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Stage 3: Development runtime for live reload
+FROM base AS dev
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app"]
+
+# Stage 4: Production runtime
+FROM base AS production
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --uid 1001 --gid appgroup appuser
+
+RUN mkdir -p /app/uploads/offers /app/storage && \
+    chown -R appuser:appgroup /app
+
+COPY --from=builder /root/.local /home/appuser/.local
+ENV PATH=/home/appuser/.local/bin:$PATH
+
+COPY --chown=appuser:appgroup app ./app
+COPY --chown=appuser:appgroup storage ./storage
+
+USER appuser
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

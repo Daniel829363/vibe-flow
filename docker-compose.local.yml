@@ -1,0 +1,129 @@
+# Vibe Workflow — Локальное окружение для разработки (Hot Reload / Live Reload)
+# Запуск: docker compose -f docker-compose.local.yml up
+# или в фоновом режиме: docker compose -f docker-compose.local.yml up -d
+# Пересборка: docker compose -f docker-compose.local.yml up --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: vibe-workflow-db-dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-vibeflow}
+    volumes:
+      # Bind mount для переносимости данных между серверами
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-vibeflow}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app-network
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: dev
+    container_name: vibe-workflow-server-dev
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Проброс исходного кода для мгновенного горячего перезапуска FastAPI
+      - ./server:/app
+    env_file:
+      - path: .env
+        required: false
+      - path: ./server/.env
+        required: false
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - MU_API_KEY=${MU_API_KEY:-}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@db:5432/vibeflow}
+      - DIRECT_URL=${DIRECT_URL:-postgresql://postgres:postgres@db:5432/vibeflow}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - JWT_REFRESH_TOKEN_EXPIRE_DAYS=${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_TIP=${GOOGLE_TIP:-WEB}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-Vibe Workflow}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}
+      - APP_URL=${APP_URL:-http://localhost:5000}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+      target: dev
+      args:
+        API_URL: http://server:8000
+    container_name: vibe-workflow-client-dev
+    restart: unless-stopped
+    ports:
+      - "5000:3000"
+    volumes:
+      # Проброс исходного кода монорепозитория для Hot Module Replacement (HMR)
+      - .:/app
+      # Изоляция node_modules и кэша сборки Next.js от хостовой файловой системы
+      - /app/node_modules
+      - /app/client/node_modules
+      - /app/packages/workflow-builder/node_modules
+      - /app/client/.next
+      - /app/data
+      - /app/server
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - NODE_OPTIONS=--max-old-space-size=4096
+      - API_URL=http://server:8000
+      # Опрос файловой системы для гарантированного срабатывания HMR на Windows / WSL / Docker
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+      - NEXT_POLLING_INTERVAL=1000
+      - FAST_REFRESH=true
+    depends_on:
+      server:
+        condition: service_healthy
+    command: npm run dev:app
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

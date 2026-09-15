@@ -1,0 +1,487 @@
+Viewed FinikSignatureService.php:1-272
+Viewed FinikPaymentController.php:1-288
+Viewed api.php:1-28
+Searched for "finik"
+Viewed finik.php:1-18
+Viewed 2025_11_01_000000_create_finik_payments_table.php:1-43
+Viewed convert_key.php:1-49
+Viewed finik_smoketest.php:1-95
+Searched for "FINIK"
+Searched for "FINIK"
+Viewed .env:1-60
+
+# Универсальная инструкция по интеграции платежной системы Finik (AversPay QR)
+
+Данное руководство описывает архитектуру, генерацию ключей, формирование канонической подписи, создание платежа и обработку Webhook-уведомлений для подключения эквайринга **Finik** (AversPay).
+
+---
+
+## 1. Общая схема работы
+
+```
+[ Пользователь ] ──(1. Хочет оплатить)──> [ Ваш Бэкенд ]
+                                                │
+                                    (2. Формирует запрос и подпись RSA-SHA256)
+                                                ▼
+[ Пользователь ] <──(4. Редирект на QR)─── [ Finik API ] (3. Возвращает 302 + Location)
+        │
+(5. Сканирует QR в приложении банка и оплачивает)
+        │
+        ▼
+  [ Finik API ] ──(6. POST Webhook с подписью)──> [ Ваш Бэкенд /api/finik/webhook ]
+                                                         │
+                                              (7. Проверяет подпись)
+                                              (8. Начисляет баланс)
+                                              (9. Возвращает {"success": true})
+```
+
+---
+
+## 2. Подготовительный этап: Ключи и доступы
+
+### 2.1. Получение доступов от Finik
+От поддержки / личного кабинета Finik вам потребуются:
+- **`FINIK_API_KEY`** — токен API.
+- **`FINIK_ACCOUNT_ID`** — UUID мерчант-аккаунта.
+- **`FINIK_MERCHANT_CATEGORY_CODE`** — MCC код (например, `0742`).
+- **`finik_provider_public.pem`** — публичный RSA-ключ Finik для проверки вебхуков.
+
+### 2.2. Генерация пары RSA-ключей мерчанта
+Для подписи ваших запросов к API Finik сгенерируйте пару RSA 2048-bit:
+
+```bash
+# 1. Генерация приватного ключа
+openssl genrsa -out finik_private.pem 2048
+
+# 2. Извлечение публичного ключа
+openssl rsa -in finik_private.pem -pubout -out finik_public.pem
+```
+
+- **`finik_private.pem`** — сохраните в безопасное хранилище на сервере (например, `storage/finik_private.pem`). **Никому не передавайте!**
+- **`finik_public.pem`** — передайте менеджеру Finik (они привяжут его к вашему `accountId`).
+
+---
+
+## 3. Конфигурация окружения
+
+### `.env`
+```env
+FINIK_API_KEY=your_finik_api_key
+FINIK_ACCOUNT_ID=your_finik_account_uuid
+FINIK_HOST=api.acquiring.averspay.kg
+FINIK_BASE_URL=https://api.acquiring.averspay.kg
+FINIK_API_URL=https://api.acquiring.averspay.kg
+FINIK_MERCHANT_CATEGORY_CODE=0742
+FINIK_QR_NAME="Merchant Payment"
+FINIK_KURS_DOLLARA=87.5
+```
+
+### `config/finik.php`
+```php
+<?php
+
+return [
+    'api_key' => env('FINIK_API_KEY'),
+    'account_id' => env('FINIK_ACCOUNT_ID'),
+    'private_key_path' => storage_path('finik_private.pem'),
+    'public_key_path' => storage_path('finik_public.pem'),
+    'provider_public_key_path' => env('FINIK_PROVIDER_PUBLIC_KEY_PATH', storage_path('finik_provider_public.pem')),
+    'host' => env('FINIK_HOST', 'api.acquiring.averspay.kg'),
+    'base_url' => env('FINIK_BASE_URL', 'https://api.acquiring.averspay.kg'),
+    'merchant_category_code' => env('FINIK_MERCHANT_CATEGORY_CODE', '0742'),
+    'qr_name' => env('FINIK_QR_NAME', 'Payment'),
+    'kurs_dollara' => (float) env('FINIK_KURS_DOLLARA', 87.5),
+];
+```
+
+---
+
+## 4. База данных (Таблица платежей)
+
+Создайте миграцию для фиксации транзакций:
+
+```php
+Schema::create('finik_payments', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('user_id')->constrained()->onDelete('cascade');
+    $table->string('payment_id')->unique(); // Ваш внутренний UUID
+    $table->string('transaction_id')->nullable()->unique(); // ID транзакции от Finik
+    $table->decimal('amount', 10, 2);
+    $table->decimal('net', 10, 2)->nullable();
+    $table->string('status')->default('PENDING'); // PENDING, SUCCEEDED, FAILED
+    $table->string('receipt_number')->nullable();
+    $table->bigInteger('request_date')->nullable();
+    $table->bigInteger('transaction_date')->nullable();
+    $table->text('webhook_payload')->nullable();
+    $table->string('redirect_url')->nullable();
+    $table->timestamps();
+
+    $table->index('user_id');
+    $table->index('status');
+    $table->index('transaction_id');
+});
+```
+
+---
+
+## 5. Сервис формирования и валидации подписи (`FinikSignatureService`)
+
+### Правила канонизации строки Finik:
+1. **HTTP Method**: нижний регистр + `\n` (напр. `post\n`).
+2. **Path**: декодированный URI + `\n` (напр. `/v1/payment\n`).
+3. **Заголовки**: строка `host:<host>` и все `x-api-*` заголовки в нижнем регистре, отсортированные по алфавиту ключей и соединенные через `&` + `\n` (напр. `host:api.acquiring.averspay.kg&x-api-key:...&x-api-timestamp:...\n`).
+4. **Query-параметры**: сортировка по ключам, `rawurlencode(urldecode(k))=rawurlencode(urldecode(v))` через `&` + `\n` (если есть).
+5. **Body**: сортировка **только ключей верхнего уровня** (`uksort`), кодирование в JSON с флагами `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE` (вложенные объекты не сортируются!).
+6. **Подпись**: `openssl_sign($canonicalString, $signature, $privateKey, OPENSSL_ALGO_SHA256)` -> `base64_encode`.
+
+```php
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Log;
+
+class FinikSignatureService
+{
+    private const JSON_CANONICAL_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+
+    private function createCanonicalString(
+        string $method,
+        string $path,
+        string $host,
+        array $xApiHeaders,
+        array $queryParams = [],
+        ?array $body = null
+    ): string {
+        $data = strtolower($method) . "\n";
+        $data .= urldecode($path) . "\n";
+
+        // Собираем host и все x-api-*
+        $parts = ['host:' . $host];
+        $xApiHeadersSorted = [];
+        foreach ($xApiHeaders as $name => $value) {
+            $lowerName = strtolower((string) $name);
+            if (str_starts_with($lowerName, 'x-api-')) {
+                $xApiHeadersSorted[$lowerName] = (string) $value;
+            }
+        }
+        ksort($xApiHeadersSorted);
+        foreach ($xApiHeadersSorted as $name => $value) {
+            $parts[] = $name . ':' . $value;
+        }
+        $data .= implode('&', $parts) . "\n";
+
+        // Query параметры
+        if (!empty($queryParams)) {
+            uksort($queryParams, fn($a, $b) => strcmp($a, $b));
+            $queryParts = [];
+            foreach ($queryParams as $key => $value) {
+                $queryParts[] = rawurlencode(urldecode($key)) . '=' . rawurlencode(urldecode($value ?? ''));
+            }
+            $data .= implode('&', $queryParts) . "\n";
+        }
+
+        // Body (сортировка только 1-го уровня ключей)
+        if ($body !== null && !empty($body)) {
+            $sortedBody = $this->sortBodyKeys($body);
+            $data .= json_encode($sortedBody, self::JSON_CANONICAL_FLAGS);
+        }
+
+        return $data;
+    }
+
+    public function canonicalizeBody(array $body): array
+    {
+        return $this->sortBodyKeys($body);
+    }
+
+    private function sortBodyKeys(array $array): array
+    {
+        uksort($array, fn($a, $b) => strcmp($a, $b));
+        return $array;
+    }
+
+    /**
+     * Подпись исходящего запроса к API Finik
+     */
+    public function sign(
+        string $httpMethod,
+        string $path,
+        string $timestamp,
+        array $body = [],
+        array $queryParams = [],
+        ?string $host = null
+    ): string {
+        $host = $host ?: config('finik.host');
+        $xApiHeaders = [
+            'x-api-key' => config('finik.api_key'),
+            'x-api-timestamp' => $timestamp,
+        ];
+
+        $canonicalString = $this->createCanonicalString(
+            method: $httpMethod,
+            path: $path,
+            host: $host,
+            xApiHeaders: $xApiHeaders,
+            queryParams: $queryParams,
+            body: $body
+        );
+
+        $privateKey = file_get_contents(config('finik.private_key_path'));
+        openssl_sign($canonicalString, $signature, $privateKey, OPENSSL_ALGO_SHA256);
+
+        return base64_encode($signature);
+    }
+
+    /**
+     * Верификация входящего Webhook от Finik
+     */
+    public function verify(
+        string $httpMethod,
+        string $path,
+        string $timestamp,
+        string $signature,
+        array $body,
+        string $host,
+        array $xApiHeaders = []
+    ): bool {
+        try {
+            if (empty($xApiHeaders)) {
+                $xApiHeaders = ['x-api-timestamp' => $timestamp];
+            }
+
+            $canonicalString = $this->createCanonicalString(
+                method: $httpMethod,
+                path: $path,
+                host: $host,
+                xApiHeaders: $xApiHeaders,
+                queryParams: [],
+                body: $body
+            );
+
+            $publicKeyPath = config('finik.provider_public_key_path');
+            if (!file_exists($publicKeyPath)) {
+                Log::error('Finik provider public key file not found');
+                return false;
+            }
+
+            $publicKey = file_get_contents($publicKeyPath);
+            $signatureDecoded = base64_decode(trim($signature), true);
+
+            $result = openssl_verify($canonicalString, $signatureDecoded, $publicKey, OPENSSL_ALGO_SHA256);
+            return $result === 1;
+        } catch (\Exception $e) {
+            Log::error('Signature verification error: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+```
+
+---
+
+## 6. Инициализация платежа (`POST /v1/payment`)
+
+### Важная особенность:
+При успешном создании платежа Finik API отвечает **HTTP кодом 302** и передает ссылку на страницу оплаты в заголовке **`Location`** (cURL-клиент не должен автоматически переходить по редиректу, нужно спарсить заголовок `Location`).
+
+```php
+public function createPayment(Request $request)
+{
+    $request->validate(['amount' => 'required|numeric|min:1']);
+
+    $user = Auth::user();
+    $amountInKgs = $request->amount; // Сумма в сомах
+    $paymentId = (string) Str::uuid();
+
+    // 1. Создание записи в БД
+    $payment = FinikPayment::create([
+        'user_id' => $user->id,
+        'payment_id' => $paymentId,
+        'amount' => $amountInKgs,
+        'status' => 'PENDING',
+        'redirect_url' => route('balance.index'),
+        'request_date' => now()->timestamp * 1000,
+    ]);
+
+    // 2. Тело запроса
+    $body = [
+        'Amount' => (float) $amountInKgs,
+        'CardType' => 'FINIK_QR',
+        'PaymentId' => $paymentId,
+        'RedirectUrl' => route('balance.index'),
+        'Data' => [
+            'accountId' => config('finik.account_id'),
+            'merchantCategoryCode' => config('finik.merchant_category_code', '0742'),
+            'name_en' => config('finik.qr_name', 'Merchant Payment'),
+            'webhookUrl' => route('finik.webhook'),
+            'description' => 'Payment for user #' . $user->id,
+        ],
+    ];
+
+    // 3. Подпись
+    $timestamp = (string) (now()->timestamp * 1000);
+    $baseUrl = config('finik.base_url');
+    $host = parse_url($baseUrl, PHP_URL_HOST);
+    $apiKey = config('finik.api_key');
+
+    $canonicalBody = $this->signatureService->canonicalizeBody($body);
+    $jsonBody = json_encode($canonicalBody, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+    $signature = $this->signatureService->sign(
+        httpMethod: 'post',
+        path: '/v1/payment',
+        timestamp: $timestamp,
+        body: $body,
+        host: $host
+    );
+
+    // 4. Отправка cURL
+    $ch = curl_init("$baseUrl/v1/payment");
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false, // ВАЖНО: не переходить по 302 автоматически
+        CURLOPT_HEADER => true,
+        CURLOPT_HTTPHEADER => [
+            'Host: ' . $host,
+            'Content-Type: application/json',
+            'x-api-key: ' . $apiKey,
+            'x-api-timestamp: ' . $timestamp,
+            'signature: ' . $signature,
+        ],
+        CURLOPT_POSTFIELDS => $jsonBody,
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    curl_close($ch);
+
+    $headers = substr($response, 0, $headerSize);
+
+    // 5. Обработка 302 Redirect
+    if ($httpCode === 302 && preg_match('/Location:\s*(.+)/i', $headers, $matches)) {
+        $paymentUrl = trim($matches[1]);
+        return redirect($paymentUrl);
+    }
+
+    return back()->with('error', 'Ошибка генерации счета Finik.');
+}
+```
+
+---
+
+## 7. Обработка Webhook (`POST /api/finik/webhook`)
+
+### Задачи Webhook контроллера:
+1. Извлечь `signature`, `x-api-timestamp`, `Host` и тело JSON.
+2. Проверить совпадение `accountId`.
+3. Верифицировать подпись публичным ключом Finik.
+4. В транзакции БД обновить статус платежа и начислить баланс/выдать товар.
+5. Вернуть ответ `{"success": true}` со статусом 200.
+
+```php
+public function handleWebhook(Request $request): JsonResponse
+{
+    $signature = trim((string) $request->header('signature'));
+    $timestamp = trim((string) $request->header('x-api-timestamp'));
+    $body = (array) ($request->json()?->all() ?? $request->all());
+
+    if (!$signature || !$timestamp) {
+        return response()->json(['error' => 'Missing headers'], 400);
+    }
+
+    // Проверка аккаунта
+    if (!empty($body['accountId']) && $body['accountId'] !== config('finik.account_id')) {
+        return response()->json(['error' => 'Invalid accountId'], 403);
+    }
+
+    $host = $request->header('host') ?: $request->getHost();
+
+    // Сбор заголовков x-api-*
+    $xApiHeaders = [];
+    foreach ($request->headers->all() as $name => $values) {
+        $lower = strtolower($name);
+        if (str_starts_with($lower, 'x-api-')) {
+            $xApiHeaders[$lower] = is_array($values) ? $values[0] : $values;
+        }
+    }
+    $xApiHeaders['x-api-timestamp'] = $timestamp;
+
+    // Верификация подписи
+    $isValid = $this->signatureService->verify(
+        httpMethod: 'post',
+        path: '/api/finik/webhook', // Внимание: путь должен совпадать с маршрутом webhookUrl
+        timestamp: $timestamp,
+        signature: $signature,
+        body: $body,
+        host: $host,
+        xApiHeaders: $xApiHeaders
+    );
+
+    if (!$isValid) {
+        return response()->json(['error' => 'Invalid signature'], 401);
+    }
+
+    // Извлечение параметров
+    $paymentId = $body['fields']['PaymentId'] ?? $body['fields']['paymentId'] ?? $body['transactionId'] ?? null;
+    $statusRaw = strtolower((string) ($body['status'] ?? ''));
+    $status = match ($statusRaw) {
+        'succeeded', 'success', 'ok' => 'SUCCEEDED',
+        'failed', 'fail', 'error' => 'FAILED',
+        default => 'PENDING',
+    };
+
+    $payment = FinikPayment::where('payment_id', $paymentId)->first();
+    if (!$payment) {
+        return response()->json(['error' => 'Payment not found'], 404);
+    }
+
+    // Идемпотентное обновление
+    DB::transaction(function () use ($payment, $status, $body) {
+        $wasSucceeded = $payment->status === 'SUCCEEDED';
+        $amount = (float) ($body['amount'] ?? $payment->amount);
+
+        $payment->update([
+            'transaction_id' => $body['transactionId'] ?? null,
+            'status' => $status,
+            'net' => (float) ($body['net'] ?? $amount),
+            'receipt_number' => $body['receiptNumber'] ?? null,
+            'transaction_date' => $body['transactionDate'] ?? null,
+            'webhook_payload' => json_encode($body),
+        ]);
+
+        if ($status === 'SUCCEEDED' && !$wasSucceeded) {
+            $payment->user->increment('balance', $amount);
+        }
+    });
+
+    return response()->json(['success' => true]);
+}
+```
+
+---
+
+## 8. Маршруты и CSRF
+
+### `routes/api.php`
+```php
+use App\Http\Controllers\FinikPaymentController;
+
+// Маршруты в routes/api.php по умолчанию исключены из CSRF проверки
+Route::post('/finik/webhook', [FinikPaymentController::class, 'handleWebhook'])->name('finik.webhook');
+```
+
+> **Важно**: Если Webhook регистрируется в `routes/web.php`, его URL необходимо добавить в исключения `$except` в middleware `VerifyCsrfToken` (в Laravel 11: `->validateCsrfTokens(except: ['finik/webhook', ...])` в `bootstrap/app.php`).
+
+---
+
+## 9. Частые ошибки и рекомендации
+
+| Проблема | Причина | Решение |
+| :--- | :--- | :--- |
+| **`Invalid signature` при запросе к Finik** | 1. Нарушен порядок полей при канонизации.<br>2. Рекурсивно отсортированы вложенные массивы `Data`.<br>3. Неверный `Host` в канонической строке. | Сортируйте **только ключи верхнего уровня**. Убедитесь, что `Host` равен `api.acquiring.averspay.kg` (с портом, если нестандартный). |
+| **`Invalid signature` при входящем Webhook** | В метод `verify()` передан не тот `path` или `host`, который реально пришел от Finik в запросе. | Передавайте точный `path` (напр. `/api/finik/webhook`) и заголовок `Host` из входящего `$request`. |
+| **`400 Bad Request / JSON Parse error`** | JSON экранировал слэши `\/` или кириллицу. | Обязательно используйте `json_encode($body, JSON_UNESCAPED_SLASHES \| JSON_UNESCAPED_UNICODE)`. |
+| **cURL возвращает пустой экран вместо оплаты** | Finik возвращает `302 Found`, а cURL по умолчанию ожидает 200. | Отключите `CURLOPT_FOLLOWLOCATION => false`, считайте заголовок `Location` и сделайте редирект пользователя по полученной ссылке. |
