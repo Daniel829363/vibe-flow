@@ -12,8 +12,10 @@ import {
 import { GoWorkflow } from "react-icons/go";
 import { toast } from "react-hot-toast";
 import axios from "axios";
+import { useTranslation } from "workflow-builder";
 
 export default function CoverImageModal({ workflow, onClose, onThumbnailChange }) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("upload"); // "upload" | "url"
   const [urlInput, setUrlInput] = useState(workflow?.thumbnail || "");
   const [previewUrl, setPreviewUrl] = useState(workflow?.thumbnail || "");
@@ -28,7 +30,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
   const handleFileSelect = (file) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      toast.error("Пожалуйста, выберите файл изображения (PNG, JPG, WebP, GIF, SVG)");
+      toast.error(t("listing.coverModal.invalidImageToast", {}, "Пожалуйста, выберите файл изображения (PNG, JPG, WebP, GIF, SVG)"));
       return;
     }
     setSelectedFile(file);
@@ -69,11 +71,11 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
     setSaving(true);
     try {
       await axios.delete(`/api/workflows/${remoteId}/thumbnail`);
-      toast.success("Обложка удалена");
+      toast.success(t("listing.coverModal.coverRemovedToast", {}, "Обложка удалена"));
       onThumbnailChange?.(null);
       onClose();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Ошибка удаления обложки");
+      toast.error(err.response?.data?.detail || t("listing.coverModal.removeErrorToast", {}, "Ошибка удаления обложки"));
     } finally {
       setSaving(false);
     }
@@ -97,14 +99,14 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
           },
         });
         finalThumbnail = res.data.thumbnail;
-        toast.success("Обложка успешно загружена!");
+        toast.success(t("listing.coverModal.uploadSuccessToast", {}, "Обложка успешно загружена!"));
       } else if (activeTab === "url" || urlInput.trim()) {
         // Set URL
         const res = await axios.post(`/api/workflows/${remoteId}/thumbnail`, {
           thumbnail: urlInput.trim() || null,
         });
         finalThumbnail = res.data.thumbnail;
-        toast.success("Обложка успешно обновлена!");
+        toast.success(t("listing.coverModal.updateSuccessToast", {}, "Обложка успешно обновлена!"));
       } else {
         // Nothing changed or empty
         onClose();
@@ -114,7 +116,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
       onThumbnailChange?.(finalThumbnail);
       onClose();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Ошибка сохранения обложки");
+      toast.error(err.response?.data?.detail || t("listing.coverModal.saveErrorToast", {}, "Ошибка сохранения обложки"));
     } finally {
       setSaving(false);
       setUploadProgress(0);
@@ -138,10 +140,10 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
             </div>
             <div>
               <h3 className="text-white font-black text-sm uppercase tracking-widest">
-                Обложка процесса
+                {t("listing.coverModal.title", {}, "Обложка процесса")}
               </h3>
               <p className="text-zinc-500 text-xs mt-0.5 truncate max-w-[280px]">
-                {workflow?.name || "Без названия"}
+                {workflow?.name || t("listing.untitledFlow", {}, "Без названия")}
               </p>
             </div>
           </div>
@@ -158,7 +160,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
           {/* Left Preview: 3:4 Card Frame */}
           <div className="flex flex-col items-center gap-2">
             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest self-start">
-              Предпросмотр
+              {t("listing.coverModal.preview", {}, "Предпросмотр")}
             </span>
             <div className="relative w-[150px] aspect-[3/4] rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden shadow-xl flex flex-col justify-end">
               {previewUrl ? (
@@ -172,16 +174,16 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-zinc-700 bg-white/[0.01]">
                   <GoWorkflow size={36} />
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600">Нет обложки</span>
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600">{t("listing.coverModal.noCover", {}, "Нет обложки")}</span>
                 </div>
               )}
               {/* Overlay card info sample */}
               <div className="relative z-10 p-3 flex flex-col gap-0.5">
                 <span className="text-[11px] font-bold text-white truncate drop-shadow-md">
-                  {workflow?.name || "Процесс"}
+                  {workflow?.name || t("listing.coverModal.workflow", {}, "Процесс")}
                 </span>
                 <span className="text-[8px] uppercase tracking-wider text-zinc-400 font-semibold">
-                  3:4 Обложка
+                  {t("listing.coverModal.aspectRatio", {}, "3:4 Обложка")}
                 </span>
               </div>
             </div>
@@ -193,7 +195,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
                 className="flex items-center gap-1.5 text-[11px] text-red-400 hover:text-red-300 font-semibold pt-1 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <HiOutlineTrash size={13} />
-                <span>Удалить обложку</span>
+                <span>{t("listing.coverModal.removeCover", {}, "Удалить обложку")}</span>
               </button>
             )}
           </div>
@@ -214,7 +216,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
                 }`}
               >
                 <HiOutlineArrowUpTray size={14} />
-                <span>Загрузить файл</span>
+                <span>{t("listing.coverModal.uploadTab", {}, "Загрузить файл")}</span>
               </button>
               <button
                 type="button"
@@ -228,7 +230,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
                 }`}
               >
                 <HiOutlineLink size={14} />
-                <span>По ссылке (URL)</span>
+                <span>{t("listing.coverModal.urlTab", {}, "По ссылке (URL)")}</span>
               </button>
             </div>
 
@@ -265,16 +267,16 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
                       {selectedFile.name}
                     </p>
                     <p className="text-xs text-blue-400 mt-1 font-semibold">
-                      {(selectedFile.size / 1024).toFixed(1)} KB — Нажмите для замены
+                      {(selectedFile.size / 1024).toFixed(1)} KB — {t("listing.coverModal.clickToReplace", {}, "Нажмите для замены")}
                     </p>
                   </div>
                 ) : (
                   <div className="text-center">
                     <p className="text-sm font-bold text-zinc-200">
-                      Перетащите изображение сюда
+                      {t("listing.coverModal.dragDropTitle", {}, "Перетащите изображение сюда")}
                     </p>
                     <p className="text-xs text-zinc-500 mt-1">
-                      или нажмите для выбора файла (PNG, JPG, WebP)
+                      {t("listing.coverModal.dragDropSubtitle", {}, "или нажмите для выбора файла (PNG, JPG, WebP)")}
                     </p>
                   </div>
                 )}
@@ -294,7 +296,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
             {activeTab === "url" && (
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                  Прямая ссылка на изображение
+                  {t("listing.coverModal.urlLabel", {}, "Прямая ссылка на изображение")}
                 </label>
                 <input
                   type="url"
@@ -304,7 +306,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
                   className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all font-medium"
                 />
                 <p className="text-[11px] text-zinc-500">
-                  Вставьте прямую ссылку на картинку в формате JPG, PNG, WebP или GIF.
+                  {t("listing.coverModal.urlHelp", {}, "Вставьте прямую ссылку на картинку в формате JPG, PNG, WebP или GIF.")}
                 </p>
               </div>
             )}
@@ -318,7 +320,7 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
             onClick={onClose}
             className="px-4 py-2.5 rounded-xl text-zinc-400 hover:text-white hover:bg-white/5 font-bold text-xs uppercase tracking-widest transition-all cursor-pointer"
           >
-            Отмена
+            {t("common.discard", {}, "Отмена")}
           </button>
           <button
             type="button"
@@ -329,12 +331,12 @@ export default function CoverImageModal({ workflow, onClose, onThumbnailChange }
             {saving ? (
               <span className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Сохранение...
+                {t("listing.coverModal.saving", {}, "Сохранение...")}
               </span>
             ) : (
               <>
                 <HiOutlineCheck size={16} />
-                <span>Сохранить</span>
+                <span>{t("common.save", {}, "Сохранить")}</span>
               </>
             )}
           </button>

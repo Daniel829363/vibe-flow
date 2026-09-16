@@ -12,7 +12,7 @@ import { MdOutlineFileDownload } from "react-icons/md";
 import NodeSendButton from "./NodeSendButton";
 import { FaAngleLeft, FaAngleRight } from "react-icons/fa6";
 import NodeOptionsMenu from "./NodeOptionsMenu";
-import { useGenerationCost } from "./useGenerationCost";
+import { useGenerationCost, calculateDynamicCost, extractDefaultFormValues } from "./useGenerationCost";
 import VideoPlayer from "./VideoPlayer";
 
 const inputHandles = [
@@ -60,54 +60,12 @@ const VideoGeneration = ({ id, data, selected }) => {
   
   useEffect(() => {
     if (data.cost !== generationCost) {
-      data.onDataChange(id, { cost: generationCost });
+      data.onDataChange?.(id, { cost: generationCost });
     }
   }, [id, generationCost, data.cost]);
 
-
   const initializeFormData = (schemaProperties) => {
-    const initialData = {};
-    const fieldEntries = Object.entries(schemaProperties || {});
-
-    fieldEntries.forEach(([fieldName, fieldSchema]) => {
-      if (fieldSchema.type === "array") {
-        if (fieldSchema.items?.type === "object") {
-          const examples = fieldSchema.examples;
-          if (Array.isArray(examples) && examples.length > 0) {
-            initialData[fieldName] = examples.map((ex) => ({ ...ex }));
-          } else {
-            initialData[fieldName] = [];
-          }
-        } else {
-          initialData[fieldName] = fieldSchema.examples || [];
-        }
-
-      } else if (fieldSchema.type === "object") {
-        const nestedProps = fieldSchema.properties || {};
-        initialData[fieldName] = initializeFormData(nestedProps);
-
-      } else if (fieldSchema.default !== undefined) {
-        initialData[fieldName] = fieldSchema.default;
-
-      } else if (fieldSchema.examples && fieldSchema.examples.length > 0) {
-        initialData[fieldName] = fieldSchema.examples[0];
-
-      } else {
-        switch (fieldSchema.type) {
-          case "boolean":
-            initialData[fieldName] = false;
-            break;
-          case "int":
-          case "number":
-            initialData[fieldName] = 0;
-            break;
-          default:
-            initialData[fieldName] = "";
-        }
-      }
-    });
-
-    return initialData;
+    return extractDefaultFormValues(schemaProperties);
   };
 
   const addFormValuesInTaskData = (properties) => {
@@ -411,11 +369,21 @@ const VideoGeneration = ({ id, data, selected }) => {
         }
       }
 
+      let executionCost = generationCost;
+      try {
+        const costRes = await calculateDynamicCost(selectedModel.id, params);
+        if (costRes?.cost !== undefined && costRes?.cost !== null) {
+          executionCost = costRes.cost;
+        }
+      } catch (err) {
+        console.warn("Could not calculate dynamic cost before running video node:", err);
+      }
+
       const response = await axios.post(`/api/workflow/${workflow_id}/node/${id}/run`, {
         run_id: runId,
         model: selectedModel.id,
         params: params,
-        cost: generationCost,
+        cost: executionCost,
         node_id: "AI Video"
       });
       pollNodeStatus(response.data.run_id);

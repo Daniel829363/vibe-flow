@@ -52,7 +52,27 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="ru" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var cookieMatch = document.cookie.match(/vibe_workflow_lang=([a-z]{2})/);
+                  var saved = localStorage.getItem('vibe_workflow_lang') || (cookieMatch ? cookieMatch[1] : null);
+                  var browserLang = (navigator.language && navigator.language.slice(0, 2).toLowerCase() === 'en') ? 'en' : 'ru';
+                  var lang = saved || browserLang || 'ru';
+                  if (lang) {
+                    document.documentElement.lang = lang;
+                    document.documentElement.setAttribute('lang', lang);
+                  }
+                } catch(e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

@@ -24,9 +24,24 @@ const I18nContext = createContext({
 });
 
 export const I18nProvider = ({ children, initialLocale = null }) => {
+  const existingContext = useContext(I18nContext);
+  if (existingContext && existingContext.isInsideProvider && !initialLocale) {
+    return children;
+  }
+
   const [locale, setLocaleState] = useState(() => {
     if (initialLocale && dictionaries[initialLocale]) return initialLocale;
-    return "en";
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("vibe_workflow_lang");
+        if (saved && dictionaries[saved]) return saved;
+        const cookieMatch = document.cookie.match(/vibe_workflow_lang=([a-z]{2})/);
+        if (cookieMatch && dictionaries[cookieMatch[1]]) return cookieMatch[1];
+        const browserLang = navigator.language?.slice(0, 2)?.toLowerCase();
+        if (browserLang === "en") return "en";
+      } catch (e) {}
+    }
+    return "ru";
   });
 
   const [isMounted, setIsMounted] = useState(false);
@@ -34,23 +49,54 @@ export const I18nProvider = ({ children, initialLocale = null }) => {
   useEffect(() => {
     setIsMounted(true);
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("vibe_workflow_lang");
-      if (saved && dictionaries[saved]) {
-        setLocaleState(saved);
-      } else if (!initialLocale) {
-        const browserLang = navigator.language?.slice(0, 2)?.toLowerCase();
-        if (browserLang === "ru") {
-          setLocaleState("ru");
+      try {
+        const saved = localStorage.getItem("vibe_workflow_lang");
+        if (saved && dictionaries[saved]) {
+          setLocaleState(saved);
+          if (typeof document !== "undefined") {
+            document.documentElement.lang = saved;
+            document.documentElement.setAttribute("lang", saved);
+          }
+        } else if (!initialLocale) {
+          const cookieMatch = document.cookie.match(/vibe_workflow_lang=([a-z]{2})/);
+          if (cookieMatch && dictionaries[cookieMatch[1]]) {
+            setLocaleState(cookieMatch[1]);
+          } else {
+            const browserLang = navigator.language?.slice(0, 2)?.toLowerCase();
+            const targetLang = browserLang === "en" ? "en" : "ru";
+            setLocaleState(targetLang);
+            if (typeof document !== "undefined") {
+              document.documentElement.lang = targetLang;
+              document.documentElement.setAttribute("lang", targetLang);
+            }
+          }
         }
-      }
+      } catch (e) {}
     }
   }, [initialLocale]);
+
+  useEffect(() => {
+    if (typeof document !== "undefined" && locale) {
+      document.documentElement.lang = locale;
+      document.documentElement.setAttribute("lang", locale);
+      try {
+        document.cookie = `vibe_workflow_lang=${locale}; path=/; max-age=31536000; SameSite=Lax`;
+      } catch (e) {}
+    }
+  }, [locale]);
 
   const setLocale = useCallback((newLocale) => {
     if (dictionaries[newLocale]) {
       setLocaleState(newLocale);
       if (typeof window !== "undefined") {
-        localStorage.setItem("vibe_workflow_lang", newLocale);
+        try {
+          localStorage.setItem("vibe_workflow_lang", newLocale);
+          if (typeof document !== "undefined") {
+            document.documentElement.lang = newLocale;
+            document.documentElement.setAttribute("lang", newLocale);
+            document.cookie = `vibe_workflow_lang=${newLocale}; path=/; max-age=31536000; SameSite=Lax`;
+          }
+        } catch (e) {}
       }
     }
   }, []);
@@ -65,7 +111,7 @@ export const I18nProvider = ({ children, initialLocale = null }) => {
       if (current && typeof current === "object" && key in current) {
         current = current[key];
       } else {
-        // Fallback to English
+        // Fallback to English, then Russian
         let enCurrent = dictionaries.en;
         for (const enKey of keys) {
           if (enCurrent && typeof enCurrent === "object" && enKey in enCurrent) {
@@ -75,7 +121,20 @@ export const I18nProvider = ({ children, initialLocale = null }) => {
             break;
           }
         }
-        current = enCurrent !== null ? enCurrent : (fallback || path);
+        if (enCurrent !== null) {
+          current = enCurrent;
+        } else {
+          let ruCurrent = dictionaries.ru;
+          for (const ruKey of keys) {
+            if (ruCurrent && typeof ruCurrent === "object" && ruKey in ruCurrent) {
+              ruCurrent = ruCurrent[ruKey];
+            } else {
+              ruCurrent = null;
+              break;
+            }
+          }
+          current = ruCurrent !== null ? ruCurrent : (fallback || path);
+        }
         break;
       }
     }
@@ -97,6 +156,7 @@ export const I18nProvider = ({ children, initialLocale = null }) => {
     setLocale,
     t,
     locales: AVAILABLE_LOCALES,
+    isInsideProvider: true,
   }), [locale, setLocale, t]);
 
   return (
@@ -108,10 +168,10 @@ export const I18nProvider = ({ children, initialLocale = null }) => {
 
 export const useTranslation = () => {
   const context = useContext(I18nContext);
-  if (!context) {
+  if (!context || !context.isInsideProvider) {
     // Return fallback translation handler if provider is not mounted
     return {
-      locale: "en",
+      locale: "ru",
       setLocale: () => {},
       t: (key, params = {}, fallback = "") => fallback || key,
       locales: AVAILABLE_LOCALES,

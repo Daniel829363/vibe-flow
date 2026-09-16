@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect } from "react";
+import { useTranslation } from "workflow-builder";
 import {
   FiX,
   FiDownload,
@@ -24,11 +25,11 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-function formatDate(isoString) {
+function formatDate(isoString, locale = "ru") {
   if (!isoString) return "—";
   try {
     const d = new Date(isoString);
-    return d.toLocaleDateString("ru-RU", {
+    return d.toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US", {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -48,6 +49,8 @@ export default function MediaPreviewModal({
   onCopyUrl,
   onDownload,
 }) {
+  const { t, locale } = useTranslation();
+
   // Handle ESC key press
   useEffect(() => {
     if (!isOpen) return;
@@ -105,12 +108,11 @@ export default function MediaPreviewModal({
                 {file.filename}
               </h3>
               <div className="flex items-center gap-2 mt-0.5 text-xs text-zinc-400">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                  isAI
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${isAI
                     ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
                     : "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                }`}>
-                  {isAI ? "✨ AI Генерация" : "📤 Загрузка"}
+                  }`}>
+                  {isAI ? t("media.previewModal.aiGeneration", {}, "✨ AI Генерация") : t("media.previewModal.upload", {}, "📤 Загрузка")}
                 </span>
                 <span>•</span>
                 <span>{formatBytes(file.size_bytes)}</span>
@@ -121,7 +123,7 @@ export default function MediaPreviewModal({
           <button
             onClick={onClose}
             className="p-2 rounded-xl text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 transition shrink-0"
-            title="Закрыть (Esc)"
+            title={t("media.previewModal.closeTooltip", {}, "Закрыть (Esc)")}
           >
             <FiX size={20} />
           </button>
@@ -149,7 +151,7 @@ export default function MediaPreviewModal({
                 playsInline
                 className="max-w-full max-h-[58vh] rounded-xl shadow-2xl bg-black"
               >
-                Ваш браузер не поддерживает воспроизведение видео.
+                {t("media.previewModal.videoUnsupported", {}, "Ваш браузер не поддерживает воспроизведение видео.")}
               </video>
             </div>
           )}
@@ -161,10 +163,10 @@ export default function MediaPreviewModal({
               </div>
               <div className="space-y-1">
                 <h4 className="font-semibold text-white text-base truncate max-w-xs">{file.filename}</h4>
-                <p className="text-xs text-zinc-400">Аудиозапись</p>
+                <p className="text-xs text-zinc-400">{t("media.audioRecording", {}, "Аудиозапись")}</p>
               </div>
               <audio src={file.url} controls autoPlay className="w-full">
-                Ваш браузер не поддерживает аудио.
+                {t("media.previewModal.audioUnsupported", {}, "Ваш браузер не поддерживает аудио.")}
               </audio>
             </div>
           )}
@@ -176,13 +178,13 @@ export default function MediaPreviewModal({
               </div>
               <div>
                 <h4 className="font-semibold text-white text-base truncate max-w-xs">{file.filename}</h4>
-                <p className="text-xs text-zinc-400 mt-1">{file.mime_type || "Файл документа / данных"}</p>
+                <p className="text-xs text-zinc-400 mt-1">{file.mime_type || t("media.previewModal.docFile", {}, "Файл документа / данных")}</p>
               </div>
               <button
                 onClick={handleDownloadClick}
                 className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition flex items-center gap-2"
               >
-                <FiDownload size={16} /> Скачать файл
+                <FiDownload size={16} /> {t("media.previewModal.downloadFile", {}, "Скачать файл")}
               </button>
             </div>
           )}
@@ -192,18 +194,18 @@ export default function MediaPreviewModal({
         <div className="px-5 py-4 border-t border-white/10 bg-[#12131b] flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
           {/* File Meta Info */}
           <div className="flex flex-wrap items-center gap-4 text-zinc-400">
-            <div className="flex items-center gap-1.5" title="Дата добавления">
+            <div className="flex items-center gap-1.5" title={t("media.previewModal.dateTooltip", {}, "Дата добавления")}>
               <FiCalendar size={14} className="text-zinc-500" />
-              <span>{formatDate(file.created_at)}</span>
+              <span>{formatDate(file.created_at, locale)}</span>
             </div>
             {file.size_bytes ? (
-              <div className="flex items-center gap-1.5" title="Размер файла">
+              <div className="flex items-center gap-1.5" title={t("media.previewModal.sizeTooltip", {}, "Размер файла")}>
                 <FiHardDrive size={14} className="text-zinc-500" />
                 <span>{formatBytes(file.size_bytes)}</span>
               </div>
             ) : null}
             {file.workflow_name ? (
-              <div className="flex items-center gap-1.5 text-blue-400" title="Привязанный процесс">
+              <div className="flex items-center gap-1.5 text-blue-400" title={t("media.previewModal.workflowTooltip", {}, "Привязанный процесс")}>
                 <FiLayers size={14} />
                 <span className="truncate max-w-[200px]">{file.workflow_name}</span>
               </div>
@@ -215,19 +217,19 @@ export default function MediaPreviewModal({
             <button
               onClick={() => onCopyUrl(file.url)}
               className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-zinc-200 font-medium transition flex items-center gap-1.5"
-              title="Скопировать прямую ссылку"
+              title={t("media.copyLink", {}, "Скопировать прямую ссылку")}
             >
               <FiCopy size={14} />
-              <span>Копировать URL</span>
+              <span>{t("media.previewModal.copyUrl", {}, "Копировать URL")}</span>
             </button>
 
             <button
               onClick={handleDownloadClick}
               className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold transition flex items-center gap-1.5 shadow-md shadow-blue-600/20"
-              title="Скачать файл"
+              title={t("media.previewModal.download", {}, "Скачать файл")}
             >
               <FiDownload size={14} />
-              <span>Скачать</span>
+              <span>{t("media.previewModal.download", {}, "Скачать")}</span>
             </button>
 
             <a
@@ -235,7 +237,7 @@ export default function MediaPreviewModal({
               target="_blank"
               rel="noreferrer"
               className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white transition"
-              title="Открыть в новой вкладке"
+              title={t("media.previewModal.openInNewTab", {}, "Открыть в новой вкладке")}
             >
               <FiExternalLink size={16} />
             </a>
@@ -243,7 +245,7 @@ export default function MediaPreviewModal({
             <button
               onClick={() => onDelete(file.id)}
               className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 hover:text-red-300 transition"
-              title="Удалить файл"
+              title={t("media.previewModal.deleteFile", {}, "Удалить файл")}
             >
               <FiTrash2 size={16} />
             </button>
@@ -253,3 +255,4 @@ export default function MediaPreviewModal({
     </div>
   );
 }
+

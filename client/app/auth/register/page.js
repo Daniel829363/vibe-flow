@@ -9,10 +9,12 @@ import { FcGoogle } from "react-icons/fc";
 import { FiCheck } from "react-icons/fi";
 import { toast } from "react-hot-toast";
 import { useAuth } from "../../lib/auth";
+import { useTranslation, LanguageSwitcher } from "workflow-builder";
 
 export default function RegisterPage() {
   const router = useRouter();
   const { register, loginWithGoogle } = useAuth();
+  const { t } = useTranslation();
 
   const [name, setName]               = useState("");
   const [email, setEmail]             = useState("");
@@ -28,19 +30,19 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
     if (password !== confirm) {
-      const msg = "Пароли не совпадают";
+      const msg = t("auth.passwordsMismatch", {}, "Пароли не совпадают");
       setError(msg);
       toast.error(msg);
       return;
     }
     if (password.length < 8) {
-      const msg = "Пароль должен быть не менее 8 символов";
+      const msg = t("auth.passwordMinLength", {}, "Пароль должен быть не менее 8 символов");
       setError(msg);
       toast.error(msg);
       return;
     }
     if (!agreeLegal) {
-      const msg = "Пожалуйста, подтвердите согласие с Пользовательским соглашением, Политикой конфиденциальности и Публичной офертой";
+      const msg = t("auth.agreeLegalRequired", {}, "Пожалуйста, подтвердите согласие с Пользовательским соглашением, Политикой конфиденциальности и Публичной офертой");
       setError(msg);
       toast.error(msg);
       return;
@@ -48,13 +50,13 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(email, password, name, phone);
-      toast.success("Аккаунт создан! Проверьте почту для верификации.");
+      toast.success(t("auth.accountCreatedVerify", {}, "Аккаунт создан! Проверьте почту для верификации."));
       router.push("/workflow");
     } catch (err) {
       const detail = err.response?.data?.detail;
       const msg = detail === "Email already registered"
-        ? "Пользователь с таким email уже зарегистрирован"
-        : (detail || "Ошибка при регистрации. Проверьте данные.");
+        ? t("auth.alreadyRegistered", {}, "Пользователь с таким email уже зарегистрирован")
+        : (detail || t("auth.registrationError", {}, "Ошибка при регистрации. Проверьте данные."));
       setError(msg);
       toast.error(msg);
     } finally {
@@ -68,21 +70,26 @@ export default function RegisterPage() {
       <div className="absolute bottom-[-15%] left-[-10%] w-[50%] h-[50%] bg-blue-600/8 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
 
+      {/* Top right language switcher */}
+      <div className="absolute top-6 right-6 z-20">
+        <LanguageSwitcher />
+      </div>
+
       <div className="relative z-10 w-full max-w-md px-4">
         {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
+        <Link href="/" className="flex items-center justify-center gap-2 mb-8 hover:opacity-90 transition">
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.4)]">
             <GoWorkflow className="text-white" size={20} />
           </div>
           <span className="text-white font-black text-xl tracking-tight">
-            Workflow<span className="text-blue-500">Pro</span>
+            {t("landing.brandName", {}, "Workflow")}<span className="text-blue-500">{t("landing.brandSuffix", {}, "Pro")}</span>
           </span>
-        </div>
+        </Link>
 
         {/* Card */}
         <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
-          <h1 className="text-2xl font-black text-white text-center mb-1">Создать аккаунт</h1>
-          <p className="text-zinc-500 text-sm text-center mb-8">Присоединяйтесь к Vibe Workflow</p>
+          <h1 className="text-2xl font-black text-white text-center mb-1">{t("auth.registerTitle", {}, "Создать аккаунт")}</h1>
+          <p className="text-zinc-500 text-sm text-center mb-8">{t("auth.registerSubtitle", {}, "Присоединяйтесь к Vibe Workflow")}</p>
 
           {/* Google */}
           <button
@@ -91,12 +98,12 @@ export default function RegisterPage() {
             className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white rounded-xl px-4 py-3 font-semibold text-sm transition-all mb-6"
           >
             <FcGoogle size={20} />
-            Продолжить через Google
+            {t("auth.googleContinue", {}, "Продолжить через Google")}
           </button>
 
           <div className="flex items-center gap-3 mb-6">
             <div className="flex-1 h-px bg-white/10" />
-            <span className="text-zinc-600 text-xs font-bold uppercase tracking-widest">или</span>
+            <span className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{t("auth.or", {}, "или")}</span>
             <div className="flex-1 h-px bg-white/10" />
           </div>
 
@@ -110,28 +117,28 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
-                Имя
+                {t("auth.nameLabel", {}, "Имя")}
               </label>
               <input
                 id="reg-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ваше имя"
+                placeholder={t("auth.namePlaceholder", {}, "Ваше имя")}
                 className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
               />
             </div>
 
             <div>
               <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
-                Email
+                {t("auth.emailLabel", {}, "Email")}
               </label>
               <input
                 id="reg-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder", {}, "you@example.com")}
                 required
                 className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
               />
@@ -139,21 +146,21 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
-                Номер телефона
+                {t("auth.phoneLabel", {}, "Номер телефона")}
               </label>
               <input
                 id="reg-phone"
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+7 (999) 000-00-00"
+                placeholder={t("auth.phonePlaceholder", {}, "+7 (999) 000-00-00")}
                 className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
               />
             </div>
 
             <div>
               <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
-                Пароль
+                {t("auth.passwordLabel", {}, "Пароль")}
               </label>
               <div className="relative">
                 <input
@@ -161,7 +168,7 @@ export default function RegisterPage() {
                   type={showPwd ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Минимум 8 символов"
+                  placeholder={t("auth.passwordMinLength", {}, "Минимум 8 символов")}
                   required
                   className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 pr-11 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
                 />
@@ -177,14 +184,14 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
-                Подтвердить пароль
+                {t("auth.confirmPasswordLabel", {}, "Подтвердить пароль")}
               </label>
               <input
                 id="reg-confirm"
                 type={showPwd ? "text" : "password"}
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                placeholder="Повторите пароль"
+                placeholder={t("auth.confirmPasswordPlaceholder", {}, "Повторите пароль")}
                 required
                 className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
               />
@@ -211,7 +218,7 @@ export default function RegisterPage() {
                 </div>
               </div>
               <span className="text-xs text-zinc-400 leading-relaxed">
-                Я согласен с{" "}
+                {t("auth.agreePrefix", {}, "Я согласен с")}{" "}
                 <a
                   href="/legal?type=user_agreement"
                   target="_blank"
@@ -219,7 +226,7 @@ export default function RegisterPage() {
                   onClick={(e) => e.stopPropagation()}
                   className="text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors font-medium"
                 >
-                  Пользовательским соглашением
+                  {t("auth.userAgreement", {}, "Пользовательским соглашением")}
                 </a>
                 ,{" "}
                 <a
@@ -229,9 +236,9 @@ export default function RegisterPage() {
                   onClick={(e) => e.stopPropagation()}
                   className="text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors font-medium"
                 >
-                  Политикой конфиденциальности
+                  {t("auth.privacyPolicy", {}, "Политикой конфиденциальности")}
                 </a>{" "}
-                и{" "}
+                {t("auth.and", {}, "и")}{" "}
                 <a
                   href="/terms"
                   target="_blank"
@@ -239,7 +246,7 @@ export default function RegisterPage() {
                   onClick={(e) => e.stopPropagation()}
                   className="text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors font-medium"
                 >
-                  Публичной офертой
+                  {t("auth.publicOffer", {}, "Публичной офертой")}
                 </a>
               </span>
             </label>
@@ -253,16 +260,16 @@ export default function RegisterPage() {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Создание аккаунта...
+                  {t("auth.registering", {}, "Создание аккаунта...")}
                 </span>
-              ) : "Зарегистрироваться"}
+              ) : t("auth.registerBtn", {}, "Зарегистрироваться")}
             </button>
           </form>
 
           <p className="text-center text-sm text-zinc-500 mt-6">
-            Уже есть аккаунт?{" "}
+            {t("auth.haveAccount", {}, "Уже есть аккаунт?")}{" "}
             <Link href="/auth/login" className="text-blue-400 hover:text-blue-300 font-bold transition-colors">
-              Войти
+              {t("auth.signIn", {}, "Войти")}
             </Link>
           </p>
         </div>
@@ -270,3 +277,4 @@ export default function RegisterPage() {
     </div>
   );
 }
+

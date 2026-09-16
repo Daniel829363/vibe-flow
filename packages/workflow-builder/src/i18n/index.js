@@ -5,3 +5,5 @@ export {
   LanguageSwitcher,
   AVAILABLE_LOCALES,
 } from "./I18nContext";
+export { localizeTransactionDescription } from "./activityFormatter";
+

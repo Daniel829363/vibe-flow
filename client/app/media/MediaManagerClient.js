@@ -276,18 +276,18 @@ export default function MediaManagerClient() {
       <div className="min-h-screen bg-[#07080a] flex items-center justify-center text-zinc-400">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin"></div>
-          <p className="text-sm">Загрузка медиа-менеджера...</p>
+          <p className="text-sm">{t("media.loading", {}, "Загрузка медиа менеджера...")}</p>
         </div>
       </div>
     );
   }
 
   const typeTabs = [
-    { id: "all", label: "Все файлы", icon: <FiGrid size={15} />, count: stats.total },
-    { id: "image", label: "Изображения", icon: <FiImage size={15} />, count: stats.images },
-    { id: "video", label: "Видео", icon: <FiVideo size={15} />, count: stats.videos },
-    { id: "audio", label: "Аудио", icon: <FiMusic size={15} />, count: stats.audios },
-    { id: "other", label: "Прочее", icon: <FiFile size={15} />, count: Math.max(0, stats.total - stats.images - stats.videos - stats.audios) },
+    { id: "all", label: t("media.types.all", {}, "Все файлы"), icon: <FiGrid size={15} />, count: stats.total },
+    { id: "image", label: t("media.types.image", {}, "Изображения"), icon: <FiImage size={15} />, count: stats.images },
+    { id: "video", label: t("media.types.video", {}, "Видео"), icon: <FiVideo size={15} />, count: stats.videos },
+    { id: "audio", label: t("media.types.audio", {}, "Аудио"), icon: <FiMusic size={15} />, count: stats.audios },
+    { id: "other", label: t("media.types.other", {}, "Прочее"), icon: <FiFile size={15} />, count: Math.max(0, stats.total - stats.images - stats.videos - stats.audios) },
   ];
 
   const hasAdminFilterActive = selectedUserId !== "all" || selectedWorkflowId !== "all";
@@ -321,21 +321,21 @@ export default function MediaManagerClient() {
 
           {/* Navigation Links */}
           <div className="hidden sm:flex items-center gap-6 text-sm font-semibold">
-            <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
-              Главная
+            <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors flex items-center gap-1.5">
+              <span>📊</span> {t("nav.home", {}, "Дашборд")}
             </Link>
             <Link href="/workflow" className="text-zinc-400 hover:text-white transition-colors">
-              Процессы
+              {t("nav.workflows", {}, "Процессы")}
             </Link>
             <Link href="/media" className="text-purple-400 font-bold border-b-2 border-purple-500 pb-0.5 flex items-center gap-1.5">
-              <span>📁</span> Медиа
+              <span>📁</span> {t("nav.media", {}, "Медиа")}
             </Link>
             <Link href="/tokens" className="text-zinc-400 hover:text-amber-400 transition-colors flex items-center gap-1.5">
-              <span>🪙</span> Токены
+              <span>🪙</span> {t("nav.tokens", {}, "Токены")}
             </Link>
             {user?.is_superadmin && (
               <Link href="/admin" className="text-indigo-400 hover:text-indigo-300 font-bold transition-colors flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                <span>🛡️</span> Админка
+                <span>🛡️</span> {t("profile.adminBadge", {}, "Админка")}
               </Link>
             )}
           </div>
@@ -349,7 +349,7 @@ export default function MediaManagerClient() {
                 <Link
                   href="/tokens"
                   className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 px-3 py-1.5 rounded-full text-xs font-bold text-amber-400 transition-all"
-                  title="Мой баланс токенов"
+                  title={t("profile.tokenBalance", {}, "Мой баланс токенов")}
                 >
                   <span>🪙</span>
                   <span>{user?.token_balance ?? 0}</span>
@@ -377,7 +377,7 @@ export default function MediaManagerClient() {
                 href="/auth/login"
                 className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-md"
               >
-                Войти
+                {t("nav.login", {}, "Войти")}
               </Link>
             )}
           </div>
@@ -392,28 +392,24 @@ export default function MediaManagerClient() {
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-semibold mb-3">
                 <FiFolder size={14} />
-                <span>Хранилище материалов</span>
+                <span>{t("media.badge", {}, "Хранилище материалов")}</span>
               </div>
               <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-                Медиа-менеджер
+                {t("media.title", {}, "Медиа-менеджер")}
               </h1>
               <p className="text-zinc-400 mt-2 text-sm sm:text-base max-w-xl">
-                Централизованное хранилище сгенерированных AI-материалов и исходников из ваших процессов.
+                {t("media.subtitle", {}, "Централизованное хранилище сгенерированных AI-материалов и исходников из ваших процессов.")}
               </p>
 
               {/* Quick Stat Badges */}
               <div className="flex flex-wrap items-center gap-3 mt-5">
-                <div className="px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-zinc-300 flex items-center gap-2">
-                  <FiHardDrive className="text-purple-400" size={14} />
-                  <span>Объем: <strong>{formatBytes(stats.total_size_bytes)}</strong></span>
-                </div>
                 <div className="px-3.5 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-300 flex items-center gap-2">
                   <LuSparkles size={14} />
-                  <span>AI Генерации: <strong>{stats.generations}</strong></span>
+                  <span>{t("media.statsGenerations", { count: stats.generations }, `AI Генерации: ${stats.generations}`)}</span>
                 </div>
                 <div className="px-3.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 flex items-center gap-2">
                   <FiFile size={14} />
-                  <span>Всего файлов: <strong>{stats.total}</strong></span>
+                  <span>{t("media.statsTotal", { count: stats.total }, `Всего файлов: ${stats.total}`)}</span>
                 </div>
               </div>
             </div>
@@ -424,16 +420,16 @@ export default function MediaManagerClient() {
                 onClick={() => handleSyncWorkflows(false)}
                 disabled={isSyncing}
                 className="px-5 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-sm shadow-xl shadow-purple-600/25 transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
-                title="Сканировать процессы и синхронизировать сгенерированные файлы"
+                title={t("media.syncTooltip", {}, "Сканировать процессы и синхронизировать сгенерированные файлы")}
               >
                 <LuSparkles size={18} className={`text-white ${isSyncing ? "animate-spin" : ""}`} />
-                <span>{isSyncing ? "Синхронизация..." : "Синхронизировать"}</span>
+                <span>{isSyncing ? t("media.syncing", {}, "Синхронизация...") : t("media.sync", {}, "Синхронизировать")}</span>
               </button>
 
               <button
                 onClick={() => fetchMedia(activeType, activeSource, searchQuery, selectedUserId, selectedWorkflowId, page)}
                 className="p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white transition flex items-center justify-center"
-                title="Обновить список"
+                title={t("media.refreshTooltip", {}, "Обновить список")}
               >
                 <FiRefreshCw size={18} className={loading ? "animate-spin" : ""} />
               </button>
@@ -453,7 +449,7 @@ export default function MediaManagerClient() {
                 <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center">
                   <FiShield size={16} />
                 </div>
-                <span>Панель суперадминистратора: Фильтрация по пользователям и процессам</span>
+                <span>{t("media.admin.panelTitle", {}, "Панель суперадминистратора: Фильтрация по пользователям и процессам")}</span>
               </div>
 
               {hasAdminFilterActive && (
@@ -462,7 +458,7 @@ export default function MediaManagerClient() {
                   className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-semibold flex items-center gap-1.5 transition"
                 >
                   <FiX size={13} />
-                  <span>Сбросить фильтры админа</span>
+                  <span>{t("media.admin.resetFilters", {}, "Сбросить фильтры админа")}</span>
                 </button>
               )}
             </div>
@@ -472,7 +468,7 @@ export default function MediaManagerClient() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-400 flex items-center gap-1.5">
                   <FiUsers size={13} className="text-indigo-400" />
-                  <span>Пользователь</span>
+                  <span>{t("media.admin.user", {}, "Пользователь")}</span>
                 </label>
                 <select
                   value={selectedUserId}
@@ -482,10 +478,10 @@ export default function MediaManagerClient() {
                   }}
                   className="w-full bg-[#0d0e14] border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500/60 transition cursor-pointer"
                 >
-                  <option value="all">👥 Все пользователи системы ({adminUsers.length})</option>
+                  <option value="all">{t("media.admin.allUsers", { count: adminUsers.length }, `👥 Все пользователи системы (${adminUsers.length})`)}</option>
                   {adminUsers.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name ? `${u.name} (${u.email})` : u.email} — {u.media_count} медиа
+                      {u.name ? `${u.name} (${u.email})` : u.email} — {u.media_count} {t("media.admin.mediaCount", { count: u.media_count }, "медиа")}
                     </option>
                   ))}
                 </select>
@@ -495,7 +491,7 @@ export default function MediaManagerClient() {
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-400 flex items-center gap-1.5">
                   <FiLayers size={13} className="text-purple-400" />
-                  <span>Процесс / Workflow</span>
+                  <span>{t("media.admin.workflow", {}, "Процесс / Workflow")}</span>
                 </label>
                 <select
                   value={selectedWorkflowId}
@@ -505,10 +501,10 @@ export default function MediaManagerClient() {
                   }}
                   className="w-full bg-[#0d0e14] border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500/60 transition cursor-pointer"
                 >
-                  <option value="all">⚡ Все процессы ({adminWorkflows.length})</option>
+                  <option value="all">{t("media.admin.allWorkflows", { count: adminWorkflows.length }, `⚡ Все процессы (${adminWorkflows.length})`)}</option>
                   {adminWorkflows.map((wf) => (
                     <option key={wf.id} value={wf.remote_workflow_id || wf.id}>
-                      {wf.name} ({wf.owner_email}) — {wf.media_count} медиа
+                      {wf.name} ({wf.owner_email}) — {wf.media_count} {t("media.admin.mediaCount", { count: wf.media_count }, "медиа")}
                     </option>
                   ))}
                 </select>
@@ -529,17 +525,15 @@ export default function MediaManagerClient() {
                     setActiveType(tab.id);
                     setPage(1);
                   }}
-                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 ${
-                    activeType === tab.id
+                  className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 ${activeType === tab.id
                       ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20"
                       : "bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-zinc-200 border border-white/5"
-                  }`}
+                    }`}
                 >
                   {tab.icon}
                   <span>{tab.label}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] ${
-                    activeType === tab.id ? "bg-white/20 text-white" : "bg-white/5 text-zinc-400"
-                  }`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeType === tab.id ? "bg-white/20 text-white" : "bg-white/5 text-zinc-400"
+                    }`}>
                     {tab.count}
                   </span>
                 </button>
@@ -549,9 +543,9 @@ export default function MediaManagerClient() {
             {/* Source Filter (All / Uploads / Generations) */}
             <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/5 border border-white/10 text-xs">
               {[
-                { id: "all", label: "Все источники" },
-                { id: "generation", label: "✨ AI Генерации" },
-                { id: "upload", label: "📤 Исходники" },
+                { id: "all", label: t("media.sources.all", {}, "Все источники") },
+                { id: "generation", label: t("media.sources.generations", {}, "✨ AI Генерации") },
+                { id: "upload", label: t("media.sources.uploads", {}, "📤 Исходники") },
               ].map((src) => (
                 <button
                   key={src.id}
@@ -559,11 +553,10 @@ export default function MediaManagerClient() {
                     setActiveSource(src.id);
                     setPage(1);
                   }}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                    activeSource === src.id
+                  className={`px-3 py-1.5 rounded-lg font-medium transition ${activeSource === src.id
                       ? "bg-purple-600 text-white"
                       : "text-zinc-400 hover:text-white"
-                  }`}
+                    }`}
                 >
                   {src.label}
                 </button>
@@ -579,7 +572,7 @@ export default function MediaManagerClient() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Поиск по названию файла или процесса..."
+                placeholder={t("media.searchPlaceholder", {}, "Поиск по названию файла или процесса...")}
                 className="w-full bg-[#101118] border border-white/10 rounded-2xl pl-11 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 transition"
               />
             </div>
@@ -587,7 +580,7 @@ export default function MediaManagerClient() {
               type="submit"
               className="px-5 py-2.5 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/10 text-sm font-semibold text-white transition"
             >
-              Искать
+              {t("common.search", {}, "Искать")}
             </button>
             {searchQuery && (
               <button
@@ -598,7 +591,7 @@ export default function MediaManagerClient() {
                 }}
                 className="px-3.5 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-zinc-400 hover:text-white transition"
               >
-                Сбросить
+                {t("common.reset", {}, "Сбросить")}
               </button>
             )}
           </form>
@@ -627,11 +620,11 @@ export default function MediaManagerClient() {
               <FiFolder size={32} />
             </div>
             <div className="max-w-md space-y-1">
-              <h3 className="text-lg font-bold text-white">Файлы не найдены</h3>
+              <h3 className="text-lg font-bold text-white">{t("media.emptyTitle", {}, "Файлы не найдены")}</h3>
               <p className="text-xs sm:text-sm text-zinc-400">
                 {searchQuery || hasAdminFilterActive
-                  ? "По вашему запросу ничего не найдено. Попробуйте изменить параметры фильтрации."
-                  : "В этой категории пока нет файлов. Сгенерируйте их в ваших процессах."}
+                  ? t("media.emptySearchSubtitle", {}, "По вашему запросу ничего не найдено. Попробуйте изменить параметры фильтрации.")
+                  : t("media.emptyCategorySubtitle", {}, "В этой категории пока нет файлов. Сгенерируйте их в ваших процессах.")}
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3">
@@ -641,7 +634,7 @@ export default function MediaManagerClient() {
                 className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-md shadow-purple-600/20 transition flex items-center gap-2"
               >
                 <LuSparkles size={14} className={`text-white ${isSyncing ? "animate-spin" : ""}`} />
-                <span>{isSyncing ? "Синхронизация..." : "Синхронизировать из процессов"}</span>
+                <span>{isSyncing ? t("media.syncing", {}, "Синхронизация...") : t("media.syncFromWorkflows", {}, "Синхронизировать из процессов")}</span>
               </button>
             </div>
           </div>
@@ -689,25 +682,24 @@ export default function MediaManagerClient() {
                         <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover/thumb:scale-110 transition-transform">
                           <FiMusic size={22} />
                         </div>
-                        <span className="text-[11px] font-medium text-emerald-300">Аудиозапись</span>
+                        <span className="text-[11px] font-medium text-emerald-300">{t("media.audioRecording", {}, "Аудиозапись")}</span>
                       </div>
                     )}
 
                     {file.file_type === "other" && (
                       <div className="w-full h-full bg-zinc-900/60 flex flex-col items-center justify-center text-zinc-400 gap-2">
                         <FiFile size={32} />
-                        <span className="text-[10px] text-zinc-500">{file.mime_type || "Файл"}</span>
+                        <span className="text-[10px] text-zinc-500">{file.mime_type || t("media.file", {}, "Файл")}</span>
                       </div>
                     )}
 
                     {/* Source Badge on Top Left */}
                     <div className="absolute top-2.5 left-2.5 z-10">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold backdrop-blur-md shadow-sm border ${
-                        isAI
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold backdrop-blur-md shadow-sm border ${isAI
                           ? "bg-purple-950/80 text-purple-300 border-purple-500/40"
                           : "bg-blue-950/80 text-blue-300 border-blue-500/40"
-                      }`}>
-                        {isAI ? "✨ AI" : "📤 Исходник"}
+                        }`}>
+                        {isAI ? t("media.aiBadge", {}, "✨ AI") : t("media.sourceBadge", {}, "📤 Исходник")}
                       </span>
                     </div>
 
@@ -716,7 +708,7 @@ export default function MediaManagerClient() {
                       <div className="absolute top-2.5 right-2.5 z-10">
                         <span
                           className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-950/90 text-indigo-300 border border-indigo-500/40 backdrop-blur-md shadow-sm max-w-[110px] truncate block"
-                          title={`Пользователь: ${file.user_name || file.user_email}`}
+                          title={t("media.userTooltip", { name: file.user_name || file.user_email }, `Пользователь: ${file.user_name || file.user_email}`)}
                         >
                           👤 {file.user_name || file.user_email}
                         </span>
@@ -726,7 +718,7 @@ export default function MediaManagerClient() {
                     {/* Quick Preview Hover Overlay */}
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 pointer-events-none">
                       <span className="px-3 py-1.5 rounded-xl bg-white/20 backdrop-blur-md text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg">
-                        <FiEye size={13} /> Просмотр
+                        <FiEye size={13} /> {t("media.preview", {}, "Просмотр")}
                       </span>
                     </div>
                   </div>
@@ -748,7 +740,7 @@ export default function MediaManagerClient() {
                       </div>
 
                       {file.workflow_name && (
-                        <div className="flex items-center gap-1 text-[10px] text-blue-400/90 mt-1.5 truncate" title={`Процесс: ${file.workflow_name}`}>
+                        <div className="flex items-center gap-1 text-[10px] text-blue-400/90 mt-1.5 truncate" title={t("media.workflowTooltip", { name: file.workflow_name }, `Процесс: ${file.workflow_name}`)}>
                           <FiLayers size={11} className="shrink-0" />
                           <span className="truncate">{file.workflow_name}</span>
                         </div>
@@ -761,14 +753,14 @@ export default function MediaManagerClient() {
                         <button
                           onClick={() => handleCopyUrl(file.url)}
                           className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition"
-                          title="Скопировать ссылку"
+                          title={t("media.copyLink", {}, "Скопировать ссылку")}
                         >
                           <FiCopy size={13} />
                         </button>
                         <button
                           onClick={() => handleDownloadMedia(file.url, file.filename)}
                           className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition"
-                          title="Скачать файл"
+                          title={t("media.downloadFile", {}, "Скачать файл")}
                         >
                           <FiDownload size={13} />
                         </button>
@@ -778,7 +770,7 @@ export default function MediaManagerClient() {
                         onClick={() => handleDeleteMedia(file.id)}
                         disabled={deletingId === file.id}
                         className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition"
-                        title="Удалить"
+                        title={t("common.delete", {}, "Удалить")}
                       >
                         <FiTrash2 size={13} />
                       </button>
@@ -802,7 +794,7 @@ export default function MediaManagerClient() {
             </button>
 
             <span className="text-xs font-semibold text-zinc-400 px-4">
-              Страница {page} из {totalPages} ({totalItems} файлов)
+              {t("media.pagination", { page, totalPages, totalItems }, `Страница ${page} из ${totalPages} (${totalItems} файлов)`)}
             </span>
 
             <button

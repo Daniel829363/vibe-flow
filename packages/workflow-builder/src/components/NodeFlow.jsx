@@ -42,7 +42,7 @@ import NodesNavbar from "./NodesNavbar"
 import ChatWidget from "./ChatWidget";
 import { AiOutlineAudio } from "react-icons/ai";
 import VideoCombiner from "./VideoCombiner";
-import { useGenerationCost } from "./useGenerationCost";
+import { useGenerationCost, calculateDynamicCost, getModelDefaultFormValues } from "./useGenerationCost";
 import { useTranslation, LanguageSwitcher } from "../i18n";
 
 const nodeTypes = {
@@ -266,7 +266,7 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   useEffect(() => {
     axios.get("/api/tokens/rate")
       .then((res) => {
-        if (res.data?.rate) setTokenRate(Number(res.data.rate));
+        if (res.data?.base_rate || res.data?.rate) setTokenRate(Number(res.data.base_rate || res.data.rate));
       })
       .catch(() => {});
   }, []);
@@ -1629,8 +1629,29 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
         return;
       }
 
+      // Re-verify total dynamic cost across all active nodes before execution
+      let freshTotalCost = 0;
+      await Promise.all(
+        nodes.map(async (n) => {
+          const modelId = n.data?.selectedModel?.id;
+          if (modelId && !modelId.includes("passthrough")) {
+            try {
+              const { cost } = await calculateDynamicCost(modelId, n.data?.formValues || {});
+              if (cost !== null && cost !== undefined) {
+                freshTotalCost += Number(cost);
+              } else if (n.data?.cost) {
+                freshTotalCost += Number(n.data.cost);
+              }
+            } catch {
+              if (n.data?.cost) freshTotalCost += Number(n.data.cost);
+            }
+          }
+        })
+      );
+      const effectiveCost = freshTotalCost > 0 ? freshTotalCost.toFixed(3) : totalWorkflowCost;
+
       const response = await axios.post(`/api/workflow/${targetWorkflowId}/run`, {
-        cost: totalWorkflowCost
+        cost: effectiveCost
       });
       console.log("run data:", response.data);
       const newRunId = response.data.run_id;
@@ -2136,14 +2157,48 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
       nodePosition = getNewNodePosition(lastNode);
     }
 
+    // Resolve model if provided or pick standard default for category
+    let selectedModel = initialData.selectedModel;
+    if (!selectedModel) {
+      if (nodeType === "imageNode") selectedModel = imageModels[0] || (nodeSchemas?.categories?.image?.models ? Object.values(nodeSchemas.categories.image.models)[0] : {});
+      else if (nodeType === "videoNode") selectedModel = videoModels[0] || (nodeSchemas?.categories?.video?.models ? Object.values(nodeSchemas.categories.video.models)[0] : {});
+      else if (nodeType === "textNode") selectedModel = textModels[0] || (nodeSchemas?.categories?.text?.models ? Object.values(nodeSchemas.categories.text.models)[0] : {});
+      else if (nodeType === "audioNode") selectedModel = audioModels[0] || (nodeSchemas?.categories?.audio?.models ? Object.values(nodeSchemas.categories.audio.models)[0] : {});
+      else if (nodeType === "vidConcatNode") selectedModel = videoCombinerModels[0];
+      else if (nodeType === "concatNode") selectedModel = concatModels[0];
+      else if (nodeType === "apiNode") selectedModel = apiNodeModels[0];
+    }
+
+    // Calculate default form values from schema
+    const defaultFormValues = getModelDefaultFormValues(selectedModel, nodeSchemas);
+    const mergedFormValues = { ...defaultFormValues, ...(initialData.formValues || {}) };
+
     const newNode = {
       id,
       type: nodeType,
       position: nodePosition,
-      data: { ...initialData },
+      data: {
+        nodeSchemas,
+        selectedModel,
+        formValues: mergedFormValues,
+        cost: null,
+        ...initialData,
+      },
     };
 
     setNodes((prev) => [...prev, newNode]);
+
+    // Calculate dynamic cost with default parameters immediately
+    if (selectedModel?.id && !selectedModel.id.includes("passthrough")) {
+      calculateDynamicCost(selectedModel.id, mergedFormValues).then(({ cost }) => {
+        if (cost !== null && cost !== undefined) {
+          setNodes((nds) =>
+            nds.map((n) => (n.id === id && (n.data?.cost === null || n.data?.cost === undefined) ? { ...n, data: { ...n.data, cost } } : n))
+          );
+        }
+      });
+    }
+
     setDropDown(0);
     setContextMenu(null);
     if (!position) {
@@ -2169,10 +2224,23 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
   const { generationCost, generationCostTokens, isRefreshingCost } = useGenerationCost(selectedNode?.data?.selectedModel, selectedNode?.data?.formValues);
 
+  // Sync dynamically calculated cost for the selected node into nodes state
+  useEffect(() => {
+    if (selectedNode && generationCost !== null && generationCost !== undefined && selectedNode.data?.cost !== generationCost) {
+      setNodes((nds) =>
+        nds.map((n) => (n.id === selectedNode.id ? { ...n, data: { ...n.data, cost: generationCost } } : n))
+      );
+    }
+  }, [selectedNode?.id, generationCost]);
   
   const updateNodeFromPanel = useCallback((key, value) => {
     if (!selectedNode) return;
     setIsDirty(true);
+
+    const updatedFormValues = {
+      ...(selectedNode.data?.formValues || {}),
+      [key]: value,
+    };
 
     setNodes((nds) =>
       nds.map((node) => {
@@ -2181,21 +2249,31 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
             ...node,
             data: {
               ...node.data,
-              formValues: {
-                ...node.data.formValues,
-                [key]: value,
-              },
+              formValues: updatedFormValues,
             },
           };
         }
         return node;
       })
     );
+
+    const modelId = selectedNode.data?.selectedModel?.id;
+    if (modelId && !modelId.includes("passthrough")) {
+      calculateDynamicCost(modelId, updatedFormValues).then(({ cost }) => {
+        if (cost !== null && cost !== undefined) {
+          setNodes((nds) =>
+            nds.map((n) => (n.id === selectedNode.id ? { ...n, data: { ...n.data, cost } } : n))
+          );
+        }
+      });
+    }
   }, [selectedNode, setNodes]);
 
   const updateModel = useCallback((model) => {
     if (!selectedNode) return;
     setIsDirty(true);
+
+    const defaultFormValues = getModelDefaultFormValues(model, nodeSchemas);
 
     setNodes((nds) =>
       nds.map((node) => {
@@ -2205,14 +2283,27 @@ const NodeFlow = ({ initialNodeSchemas, initialWorkflowData }) => {
             data: {
               ...node.data,
               selectedModel: model,
+              formValues: defaultFormValues,
+              cost: null,
             },
           };
         }
         return node;
       })
     );
+
+    if (model?.id && !model.id.includes("passthrough")) {
+      calculateDynamicCost(model.id, defaultFormValues).then(({ cost }) => {
+        if (cost !== null && cost !== undefined) {
+          setNodes((nds) =>
+            nds.map((n) => (n.id === selectedNode.id ? { ...n, data: { ...n.data, cost } } : n))
+          );
+        }
+      });
+    }
+
     setDropDown(0);
-  }, [selectedNode, setNodes]);
+  }, [selectedNode, nodeSchemas, setNodes]);
 
   const getModelsForNode = (node) => {
     if (!node || !nodeSchemas?.categories) return [];

@@ -8,5 +8,7 @@ export {
   useTranslation,
   LanguageSwitcher,
   AVAILABLE_LOCALES,
+  localizeTransactionDescription,
 } from "./i18n";
+
 

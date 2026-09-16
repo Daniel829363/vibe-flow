@@ -7,33 +7,43 @@ import { useTranslation, LanguageSwitcher } from "workflow-builder";
 import { useAuth } from "./lib/auth";
 
 function AuthNav() {
-  const { user, isAuthenticated, loading, logout } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
+  const { t } = useTranslation();
   if (loading) return null;
   if (isAuthenticated) {
     return (
-      <Link
-        href="/profile"
-        className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-full text-sm font-bold transition-all"
-      >
-        {user?.avatar_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={user.avatar_url} alt="" className="w-5 h-5 rounded-full" />
-        ) : (
-          <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white text-[10px] font-black">
-            {(user?.name || user?.email)?.[0]?.toUpperCase()}
-          </div>
-        )}
-        <span className="text-zinc-300 max-w-[100px] truncate">{user?.name || user?.email}</span>
-      </Link>
+      <div className="flex items-center gap-3">
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-blue-400 text-xs font-bold transition-all"
+        >
+          <span>📊</span>
+          <span>{t("nav.home", {}, "Дашборд")}</span>
+        </Link>
+        <Link
+          href="/profile"
+          className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-full text-sm font-bold transition-all"
+        >
+          {user?.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.avatar_url} alt="" className="w-5 h-5 rounded-full" />
+          ) : (
+            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white text-[10px] font-black">
+              {(user?.name || user?.email)?.[0]?.toUpperCase()}
+            </div>
+          )}
+          <span className="text-zinc-300 max-w-[100px] truncate">{user?.name || user?.email}</span>
+        </Link>
+      </div>
     );
   }
   return (
     <div className="flex items-center gap-2">
       <Link href="/auth/login" className="text-zinc-400 hover:text-white text-sm font-bold transition-colors px-3 py-2">
-        Войти
+        {t("nav.login", {}, "Войти")}
       </Link>
       <Link href="/auth/register" className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-full text-sm font-bold transition-all">
-        Регистрация
+        {t("auth.signUp", {}, "Регистрация")}
       </Link>
     </div>
   );

@@ -38,7 +38,8 @@ from app.utils.workflow_helper import (
     update_workflow_category_helper,
     get_workflow_api_inputs_helper,
     execute_workflow_via_api_helper,
-    get_workflow_api_outputs_helper
+    get_workflow_api_outputs_helper,
+    calculate_dynamic_cost_helper,
 )
 
 logger = logging.getLogger(__name__)
@@ -571,6 +572,23 @@ async def run_node(
         payload = await request.json()
         rate = float(os.getenv("TOKEN_RATE_PER_DOLLAR", "100"))
         cost_usd = float(payload.get("cost") or 0.0)
+
+        # Re-verify dynamic cost with MuAPI based on actual model and params
+        model = payload.get("model")
+        params = payload.get("params") or {}
+        if model and not str(model).startswith("api-") and "passthrough" not in str(model):
+            try:
+                dynamic_res = await calculate_dynamic_cost_helper({
+                    "task_name": model,
+                    "payload": params
+                })
+                if dynamic_res and "cost" in dynamic_res and dynamic_res["cost"] is not None:
+                    calculated_cost = float(dynamic_res["cost"])
+                    if calculated_cost > 0 or cost_usd == 0:
+                        cost_usd = calculated_cost
+            except Exception as cost_err:
+                logger.warning(f"Could not re-verify dynamic cost for {model}: {cost_err}")
+
         required_tokens = round(cost_usd * rate, 4)
 
         # Token balance check if user is authenticated

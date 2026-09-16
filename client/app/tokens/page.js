@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 import { useAuth } from "../lib/auth";
+import { useTranslation, LanguageSwitcher, localizeTransactionDescription } from "workflow-builder";
 import {
   FiDollarSign,
   FiActivity,
@@ -25,6 +26,7 @@ import {
 export default function TokensPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const { t, locale } = useTranslation();
 
   const [balanceData, setBalanceData] = useState({ token_balance: 0, usd_equivalent: 0, rate: 100 });
   const [balanceLoading, setBalanceLoading] = useState(true);
@@ -54,7 +56,7 @@ export default function TokensPage() {
     }
   }, [user, authLoading, router]);
 
-  // ── Fetch Balance (does NOT call refreshUser to avoid re-render loop) ──
+  // ── Fetch Balance ──
   const fetchBalance = useCallback(async () => {
     setBalanceLoading(true);
     try {
@@ -81,11 +83,11 @@ export default function TokensPage() {
       setTransactions(res.data.transactions || []);
       setTotalTx(res.data.total || 0);
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Ошибка загрузки истории операций");
+      toast.error(err.response?.data?.detail || t("tokens.loadingTransactions", {}, "Ошибка загрузки истории операций"));
     } finally {
       setTxLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // ── Fetch Offers ──
   const fetchOffers = useCallback(async () => {
@@ -122,9 +124,9 @@ export default function TokensPage() {
     try {
       const res = await axios.post("/api/payment/promo/validate", { code: promoCode.trim() });
       setPromoValidated(res.data);
-      toast.success(`Промокод принят! Кешбек: ${res.data.cashback_percent}%`);
+      toast.success(t("tokens.promoSuccess", { percent: res.data.cashback_percent }, `Промокод принят! Кешбек: ${res.data.cashback_percent}%`));
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Промокод недействителен");
+      toast.error(err.response?.data?.detail || t("tokens.promoInvalid", {}, "Промокод недействителен"));
       setPromoValidated(null);
     } finally {
       setPromoLoading(false);
@@ -135,12 +137,12 @@ export default function TokensPage() {
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
     if (!agreeTerms) {
-      toast.error("Необходимо согласиться с условиями оплаты");
+      toast.error(t("tokens.agreeTermsError", {}, "Необходимо согласиться с условиями оплаты"));
       return;
     }
     const amount = parseFloat(paymentAmount);
     if (!amount || amount < 0.01) {
-      toast.error("Минимальная сумма: $0.01");
+      toast.error(t("tokens.minAmountError", {}, "Минимальная сумма: $0.01"));
       return;
     }
     setPaymentLoading(true);
@@ -152,14 +154,14 @@ export default function TokensPage() {
       // Redirect to payment URL
       if (res.data.payment_url) {
         window.open(res.data.payment_url, "_blank");
-        toast.success("Ссылка на оплату открыта в новой вкладке");
+        toast.success(t("tokens.linkOpened", {}, "Ссылка на оплату открыта в новой вкладке"));
         setPaymentModal(false);
         resetPaymentForm();
       } else {
-        toast.error("Не удалось получить ссылку на оплату");
+        toast.error(t("tokens.paymentError", {}, "Не удалось получить ссылку на оплату"));
       }
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Ошибка создания платежа");
+      toast.error(err.response?.data?.detail || t("tokens.paymentError", {}, "Ошибка создания платежа"));
     } finally {
       setPaymentLoading(false);
     }
@@ -173,17 +175,12 @@ export default function TokensPage() {
     setPaymentProvider("finik");
   };
 
-  // ── Open Terms Page ──
-  const openOfferPdf = (lang) => {
-    window.open(`/terms?lang=${lang}`, "_blank");
-  };
-
   if (authLoading || !user) {
     return (
       <div className="min-h-screen bg-[#0a0a0c] flex items-center justify-center text-zinc-400">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"></div>
-          <p className="text-sm">Загрузка данных...</p>
+          <p className="text-sm">{t("dashboard.loading", {}, "Загрузка данных...")}</p>
         </div>
       </div>
     );
@@ -210,7 +207,7 @@ export default function TokensPage() {
             <button
               onClick={() => router.push("/workflow")}
               className="p-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-700/60 text-zinc-400 hover:text-white transition"
-              title="Назад к процессам"
+              title={t("builder.backToWorkflows", {}, "Назад к процессам")}
             >
               <FiArrowLeft size={18} />
             </button>
@@ -218,25 +215,26 @@ export default function TokensPage() {
               <span className="text-lg">🪙</span>
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white">Мой баланс и токены</h1>
-              <p className="text-xs text-zinc-400">История начислений, списаний и расходов</p>
+              <h1 className="text-xl font-bold tracking-tight text-white">{t("tokens.title", {}, "Мой баланс и токены")}</h1>
+              <p className="text-xs text-zinc-400">{t("tokens.subtitle", {}, "История начислений, списаний и расходов")}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            <LanguageSwitcher />
             <button
               onClick={() => { setPaymentModal(true); fetchOffers(); }}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white text-sm font-semibold transition shadow-lg shadow-emerald-500/20"
             >
               <FiCreditCard size={16} />
-              <span>Пополнить</span>
+              <span>{t("tokens.topUpBtn", {}, "Пополнить")}</span>
             </button>
             <button
               onClick={() => { fetchBalance(); fetchTransactions(activeCategory, page); }}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 text-xs font-medium transition"
             >
               <FiRefreshCw size={14} className={balanceLoading || txLoading ? "animate-spin" : ""} />
-              <span>Обновить</span>
+              <span>{t("tokens.refresh", {}, "Обновить")}</span>
             </button>
           </div>
         </div>
@@ -249,17 +247,17 @@ export default function TokensPage() {
           <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
             <div>
               <span className="text-xs font-semibold text-amber-400/90 uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                <span>🪙</span> Доступный баланс токенов
+                <span>🪙</span> {t("tokens.availableBalance", {}, "Доступный баланс токенов")}
               </span>
               <div className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight flex items-baseline gap-2">
                 <span>{balance.toLocaleString()}</span>
-                <span className="text-xl font-medium text-amber-400">токенов</span>
+                <span className="text-xl font-medium text-amber-400">{t("tokens.tokensWord", {}, "токенов")}</span>
               </div>
               <div className="text-sm text-zinc-400 mt-2 flex items-center gap-2">
-                <span>Эквивалент:</span>
+                <span>{t("tokens.equivalent", {}, "Эквивалент:")}</span>
                 <span className="font-semibold text-emerald-400">~ ${usdEquiv} USD</span>
                 <span className="text-zinc-600">•</span>
-                <span className="text-xs text-zinc-500">Курс: $1 = {rate} токенов</span>
+                <span className="text-xs text-zinc-500">{t("tokens.rateDesc", { rate }, `Курс: $1 = ${rate} токенов`)}</span>
               </div>
             </div>
 
@@ -269,13 +267,13 @@ export default function TokensPage() {
                 className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-sm font-bold transition shadow-xl shadow-emerald-500/20"
               >
                 <FiCreditCard size={18} />
-                Пополнить баланс
+                {t("tokens.topUpBalance", {}, "Пополнить баланс")}
               </button>
               <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-400 space-y-1">
                 <div className="flex items-center gap-2 text-zinc-200 font-semibold">
-                  <FiInfo className="text-amber-400" size={14} /> Как работают токены?
+                  <FiInfo className="text-amber-400" size={14} /> {t("tokens.howTokensWork", {}, "Как работают токены?")}
                 </div>
-                <p>Токены списываются при генерации контента в AI нодах и запуске workflows.</p>
+                <p>{t("tokens.tokensWorkDesc", {}, "Токены списываются при генерации контента в AI нодах и запуске workflows.")}</p>
               </div>
             </div>
           </div>
@@ -289,7 +287,7 @@ export default function TokensPage() {
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <FiActivity className="text-indigo-400" /> История операций
+              <FiActivity className="text-indigo-400" /> {t("tokens.transactionsHistory", {}, "История операций")}
             </h2>
 
             {/* Filter Tabs */}
@@ -302,7 +300,7 @@ export default function TokensPage() {
                     : "text-zinc-400 hover:text-zinc-200"
                 }`}
               >
-                Все ({totalTx})
+                {t("tokens.filterAll", { count: totalTx }, `Все (${totalTx})`)}
               </button>
               <button
                 onClick={() => { setActiveCategory("admin"); setPage(1); }}
@@ -312,7 +310,7 @@ export default function TokensPage() {
                     : "text-zinc-400 hover:text-zinc-200"
                 }`}
               >
-                Пополнения / Списания
+                {t("tokens.filterAdmin", {}, "Пополнения / Списания")}
               </button>
               <button
                 onClick={() => { setActiveCategory("usage"); setPage(1); }}
@@ -322,7 +320,7 @@ export default function TokensPage() {
                     : "text-zinc-400 hover:text-zinc-200"
                 }`}
               >
-                Использование в процессах
+                {t("tokens.filterUsage", {}, "Использование в процессах")}
               </button>
             </div>
           </div>
@@ -332,13 +330,13 @@ export default function TokensPage() {
             {txLoading ? (
               <div className="text-center py-16 text-zinc-500">
                 <div className="inline-block w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-                <div>Загрузка истории операций...</div>
+                <div>{t("tokens.loadingTransactions", {}, "Загрузка истории операций...")}</div>
               </div>
             ) : transactions.length === 0 ? (
               <div className="text-center py-16 text-zinc-500 space-y-2">
                 <div className="text-2xl">🪙</div>
-                <div className="text-sm font-medium">Операции не найдены</div>
-                <div className="text-xs text-zinc-600">Здесь будут отображаться ваши начисления и расходы токенов</div>
+                <div className="text-sm font-medium">{t("tokens.noTransactionsTitle", {}, "Операции не найдены")}</div>
+                <div className="text-xs text-zinc-600">{t("tokens.noTransactionsSubtitle", {}, "Здесь будут отображаться ваши начисления и расходы токенов")}</div>
               </div>
             ) : (
               <div className="divide-y divide-zinc-800/60">
@@ -360,15 +358,15 @@ export default function TokensPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm text-zinc-100">
-                            {tx.description || (tx.type === "topup" ? "Пополнение баланса" : tx.type === "deduction" ? "Списание баланса" : "Генерация")}
+                            {localizeTransactionDescription(tx.description, tx.type, t)}
                           </span>
                         </div>
                         <div className="text-xs text-zinc-500 mt-0.5 flex items-center gap-2">
-                          <span>{tx.created_at ? new Date(tx.created_at).toLocaleString() : ""}</span>
+                          <span>{tx.created_at ? new Date(tx.created_at).toLocaleString(locale === "ru" ? "ru-RU" : "en-US") : ""}</span>
                           {tx.workflow_name && (
                             <>
                               <span>•</span>
-                              <span className="text-zinc-400">Процесс: {tx.workflow_name}</span>
+                              <span className="text-zinc-400">{t("tokens.workflowLabel", { name: tx.workflow_name }, `Процесс: ${tx.workflow_name}`)}</span>
                             </>
                           )}
                         </div>
@@ -405,8 +403,8 @@ export default function TokensPage() {
                   <FiCreditCard size={20} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white">Пополнение баланса</h3>
-                  <p className="text-xs text-zinc-400">Выберите способ и сумму оплаты</p>
+                  <h3 className="text-lg font-bold text-white">{t("tokens.modalTitle", {}, "Пополнение баланса")}</h3>
+                  <p className="text-xs text-zinc-400">{t("tokens.modalSubtitle", {}, "Выберите способ и сумму оплаты")}</p>
                 </div>
               </div>
               <button
@@ -420,7 +418,7 @@ export default function TokensPage() {
             <form onSubmit={handleSubmitPayment} className="p-6 space-y-5">
               {/* Amount */}
               <div>
-                <label className="block text-sm font-semibold text-zinc-200 mb-2">Сумма (USD)</label>
+                <label className="block text-sm font-semibold text-zinc-200 mb-2">{t("tokens.amountUsd", {}, "Сумма (USD)")}</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">$</span>
                   <input
@@ -437,13 +435,13 @@ export default function TokensPage() {
                 {paymentAmount && parseFloat(paymentAmount) > 0 && (
                   <div className="mt-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm">
                     <div className="flex justify-between text-zinc-300">
-                      <span>Вы получите:</span>
-                      <span className="font-bold text-emerald-400">~{previewTokens} токенов</span>
+                      <span>{t("tokens.youWillGet", {}, "Вы получите:")}</span>
+                      <span className="font-bold text-emerald-400">~{previewTokens} {t("tokens.tokensWord", {}, "токенов")}</span>
                     </div>
                     {promoValidated?.valid && (
                       <div className="flex justify-between text-zinc-300 mt-1">
-                        <span>Кешбек ({promoValidated.cashback_percent}%):</span>
-                        <span className="font-bold text-amber-400">+{previewCashback} токенов</span>
+                        <span>{t("tokens.cashback", { percent: promoValidated.cashback_percent }, `Кешбек (${promoValidated.cashback_percent}%):`)}</span>
+                        <span className="font-bold text-amber-400">+{previewCashback} {t("tokens.tokensWord", {}, "токенов")}</span>
                       </div>
                     )}
                   </div>
@@ -452,7 +450,7 @@ export default function TokensPage() {
 
               {/* Provider */}
               <div>
-                <label className="block text-sm font-semibold text-zinc-200 mb-2">Провайдер оплаты</label>
+                <label className="block text-sm font-semibold text-zinc-200 mb-2">{t("tokens.provider", {}, "Провайдер оплаты")}</label>
                 <div className="grid grid-cols-1 gap-2">
                   <button
                     type="button"
@@ -470,7 +468,7 @@ export default function TokensPage() {
                     </div>
                     <div className="text-left">
                       <div className="font-semibold text-white">FINIK</div>
-                      <div className="text-xs text-zinc-400">Оплата через QR-код (AversPay)</div>
+                      <div className="text-xs text-zinc-400">{t("tokens.qrPayment", {}, "Оплата через QR-код (AversPay)")}</div>
                     </div>
                     {paymentProvider === "finik" && (
                       <FiCheck className="ml-auto text-emerald-400" size={20} />
@@ -483,14 +481,14 @@ export default function TokensPage() {
               <div>
                 <label className="block text-sm font-semibold text-zinc-200 mb-2">
                   <FiGift className="inline mr-1.5 text-amber-400" size={14} />
-                  Промокод <span className="text-zinc-500 font-normal">(необязательно)</span>
+                  {t("tokens.promoCode", {}, "Промокод")} <span className="text-zinc-500 font-normal">{t("tokens.promoOptional", {}, "(необязательно)")}</span>
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={promoCode}
                     onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoValidated(null); }}
-                    placeholder="Введите промокод"
+                    placeholder={t("tokens.promoPlaceholder", {}, "Введите промокод")}
                     className="flex-1 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/30 transition text-sm font-medium uppercase tracking-wider"
                   />
                   <button
@@ -499,13 +497,13 @@ export default function TokensPage() {
                     disabled={!promoCode.trim() || promoLoading}
                     className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white text-sm font-semibold transition"
                   >
-                    {promoLoading ? "..." : "Проверить"}
+                    {promoLoading ? "..." : t("tokens.checkPromo", {}, "Проверить")}
                   </button>
                 </div>
                 {promoValidated?.valid && (
                   <div className="mt-2 flex items-center gap-2 text-sm text-emerald-400">
                     <FiCheck size={14} />
-                    <span>Промокод принят! Кешбек: <strong>{promoValidated.cashback_percent}%</strong></span>
+                    <span>{t("tokens.promoSuccess", { percent: promoValidated.cashback_percent }, `Промокод принят! Кешбек: ${promoValidated.cashback_percent}%`)}</span>
                   </div>
                 )}
               </div>
@@ -529,7 +527,7 @@ export default function TokensPage() {
                     </div>
                   </div>
                   <span className="text-sm text-zinc-300">
-                    Оплачивая на нашей платформе вы соглашаетесь с{" "}
+                    {t("tokens.agreeTerms", {}, "Оплачивая на нашей платформе вы соглашаетесь с")}{" "}
                     {offers.length > 0 ? (
                       offers.map((o, i) => (
                         <span key={o.id}>
@@ -543,7 +541,7 @@ export default function TokensPage() {
                             }}
                             className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 inline-flex items-center gap-0.5 font-medium"
                           >
-                            условиями оплаты ({o.language.toUpperCase()})
+                            {t("tokens.termsOfPayment", {}, "условиями оплаты")} ({o.language.toUpperCase()})
                             <FiExternalLink size={10} />
                           </a>
                         </span>
@@ -558,7 +556,7 @@ export default function TokensPage() {
                         }}
                         className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 inline-flex items-center gap-0.5 font-medium"
                       >
-                        условиями оплаты
+                        {t("tokens.termsOfPayment", {}, "условиями оплаты")}
                         <FiExternalLink size={10} />
                       </a>
                     )}
@@ -575,12 +573,12 @@ export default function TokensPage() {
                 {paymentLoading ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                    Обработка...
+                    {t("tokens.processing", {}, "Обработка...")}
                   </>
                 ) : (
                   <>
                     <FiCreditCard size={18} />
-                    Оплатить {paymentAmount ? `$${parseFloat(paymentAmount).toFixed(2)}` : ""}
+                    {t("tokens.payBtn", { amount: paymentAmount ? `$${parseFloat(paymentAmount).toFixed(2)}` : "" }, `Оплатить ${paymentAmount ? `$${parseFloat(paymentAmount).toFixed(2)}` : ""}`)}
                   </>
                 )}
               </button>
@@ -591,3 +589,4 @@ export default function TokensPage() {
     </div>
   );
 }
+

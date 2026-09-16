@@ -21,9 +21,9 @@ const TAB_MY = "my";
 const TAB_PUBLIC = "public";
 
 const ACCESS_BADGE = {
-  owner: { label: "Мой", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
-  full_access: { label: "Полный доступ", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
-  view_only: { label: "Просмотр", color: "text-zinc-400", bg: "bg-white/5 border-white/10" },
+  owner: { labelKey: "listing.accessOwner", fallback: "Мой", color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+  full_access: { labelKey: "listing.accessFull", fallback: "Полный доступ", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
+  view_only: { labelKey: "listing.accessView", fallback: "Просмотр", color: "text-zinc-400", bg: "bg-white/5 border-white/10" },
 };
 
 const WorkflowListingClient = ({ initialWorkflowList }) => {
@@ -72,7 +72,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
     setLoading(true);
     axios.get("/api/workflows/public")
       .then((res) => setPublicWorkflows(res.data || []))
-      .catch(() => toast.error("Не удалось загрузить публичные процессы"))
+      .catch(() => toast.error(t("toasts.workflowFetchFailed", {}, "Не удалось загрузить публичные процессы")))
       .finally(() => setLoading(false));
   };
 
@@ -113,7 +113,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
 
   const handleDeleteWorkflow = (wf) => {
     const confirmDelete = window.confirm(
-      t("listing.confirmDelete", {}, "Are you sure you want to delete this workflow?")
+      t("listing.confirmDelete", {}, "Вы уверены, что хотите удалить этот процесс? Это действие необратимо.")
     );
     if (!confirmDelete) return;
 
@@ -153,7 +153,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
       })
       .catch((error) => {
         setRenameId(null);
-        toast.error(error.response?.data?.detail || "Ошибка переименования");
+        toast.error(error.response?.data?.detail || t("toasts.workflowRenameFailed", {}, "Ошибка переименования"));
       })
       .finally(() => setLoading(false));
   };
@@ -162,11 +162,11 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
     const remoteId = wf.remote_workflow_id || wf.id;
     try {
       await axios.post(`/api/workflows/${remoteId}/copy`);
-      toast.success("Копия создана в ваших процессах!");
+      toast.success(t("listing.createCopy", {}, "Копия создана в ваших процессах!"));
       setTab(TAB_MY);
       fetchMyWorkflows();
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Ошибка копирования");
+      toast.error(err.response?.data?.detail || t("toasts.workflowSaveFailed", {}, "Ошибка копирования"));
     }
   };
 
@@ -218,7 +218,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm gap-2.5 transition-all animate-in fade-in duration-200">
             <div className="w-8 h-8 border-2 border-white/20 border-t-blue-500 rounded-full animate-spin shadow-[0_0_15px_rgba(59,130,246,0.6)]" />
             <span className="text-[11px] text-blue-400 font-bold uppercase tracking-wider animate-pulse">
-              Загрузка...
+              {t("builder.generating", {}, "Загрузка...")}
             </span>
           </div>
         )}
@@ -228,7 +228,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
           {/* Access badge */}
           {badge && (
             <span className={`px-2 py-1 rounded-lg border text-[9px] font-bold uppercase tracking-widest ${badge.bg} ${badge.color}`}>
-              {badge.label}
+              {t(badge.labelKey, {}, badge.fallback)}
             </span>
           )}
 
@@ -241,7 +241,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                 handleCopyPublic(work);
               }}
               className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-zinc-400 hover:text-white transition-all hover:scale-110 shadow-lg cursor-pointer"
-              title="Создать копию"
+              title={t("listing.createCopy", {}, "Создать копию")}
             >
               <FaCopy size={13} />
             </button>
@@ -277,7 +277,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                         }}
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
                       >
-                        <FaRegEdit size={13} /> Переименовать
+                        <FaRegEdit size={13} /> {t("listing.rename", {}, "Переименовать")}
                       </button>
                       <button
                         onClick={(e) => {
@@ -297,7 +297,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                         }}
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
                       >
-                        <HiOutlineCog6Tooth size={13} /> Настройки
+                        <HiOutlineCog6Tooth size={13} /> {t("listing.settingsModal.title", {}, "Настройки")}
                       </button>
                       <button
                         onClick={(e) => {
@@ -307,7 +307,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                         }}
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
                       >
-                        <HiOutlineUserGroup size={13} /> Поделиться
+                        <HiOutlineUserGroup size={13} /> {t("listing.share", {}, "Поделиться")}
                       </button>
                       <hr className="border-white/5 my-1" />
                       <button
@@ -317,7 +317,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                         }}
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                       >
-                        <FiTrash2 size={13} /> Удалить
+                        <FiTrash2 size={13} /> {t("listing.delete", {}, "Удалить")}
                       </button>
                     </>
                   )}
@@ -331,10 +331,10 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                         }}
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/10 transition-colors cursor-pointer font-medium"
                       >
-                        <FaCopy size={13} /> Создать копию
+                        <FaCopy size={13} /> {t("listing.createCopy", {}, "Создать копию")}
                       </button>
                       <div className="px-4 py-1.5 text-[10px] uppercase font-bold tracking-wider text-zinc-500 border-t border-white/5">
-                        {work.access_level === "full_access" ? "Полный доступ" : "Только просмотр"}
+                        {work.access_level === "full_access" ? t("listing.accessFull", {}, "Полный доступ") : t("listing.accessView", {}, "Только просмотр")}
                       </div>
                     </>
                   )}
@@ -349,11 +349,11 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
           <div className="absolute top-3 left-3 z-20">
             {work.visibility === "public" ? (
               <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-[9px] font-bold uppercase tracking-widest">
-                <HiOutlineGlobeAlt size={10} /> Публичный
+                <HiOutlineGlobeAlt size={10} /> {t("listing.publicBadge", {}, "Публичный")}
               </span>
             ) : (
               <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-zinc-500 text-[9px] font-bold uppercase tracking-widest">
-                <HiOutlineLockClosed size={10} /> Приватный
+                <HiOutlineLockClosed size={10} /> {t("listing.privateBadge", {}, "Приватный")}
               </span>
             )}
           </div>
@@ -394,7 +394,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#030303] text-white">
         <div className="w-10 h-10 border-4 border-white/10 border-t-blue-500 rounded-full animate-spin" />
         <span className="mt-4 text-zinc-500 text-xs font-bold uppercase tracking-widest animate-pulse">
-          Проверка доступа...
+          {t("listing.checkingAccess", {}, "Проверка доступа...")}
         </span>
       </div>
     );
@@ -429,21 +429,21 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
 
           {/* Navigation Links */}
           <div className="hidden sm:flex items-center gap-6 text-sm font-semibold">
-            <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
-              Главная
+            <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors flex items-center gap-1.5">
+              <span>📊</span> {t("nav.home", {}, "Дашборд")}
             </Link>
             <Link href="/workflow" className="text-blue-400 font-bold border-b-2 border-blue-500 pb-0.5">
-              Процессы
+              {t("nav.workflows", {}, "Процессы")}
             </Link>
             <Link href="/media" className="text-zinc-400 hover:text-purple-400 transition-colors flex items-center gap-1.5">
-              <span>📁</span> Медиа
+              <span>📁</span> {t("nav.media", {}, "Медиа")}
             </Link>
             <Link href="/tokens" className="text-zinc-400 hover:text-amber-400 transition-colors flex items-center gap-1.5">
-              <span>🪙</span> Токены
+              <span>🪙</span> {t("nav.tokens", {}, "Токены")}
             </Link>
             {user?.is_superadmin && (
               <Link href="/admin" className="text-indigo-400 hover:text-indigo-300 font-bold transition-colors flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                <span>🛡️</span> Админка
+                <span>🛡️</span> {t("nav.admin", {}, "Админка")}
               </Link>
             )}
           </div>
@@ -457,7 +457,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                 <Link
                   href="/tokens"
                   className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 px-3 py-1.5 rounded-full text-xs font-bold text-amber-400 transition-all"
-                  title="Мой баланс токенов"
+                  title={t("nav.myBalance", {}, "Мой баланс токенов")}
                 >
                   <span>🪙</span>
                   <span>{user?.token_balance ?? 0}</span>
@@ -485,7 +485,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                 href="/auth/login"
                 className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-full text-xs font-bold transition-all shadow-md"
               >
-                Войти
+                {t("auth.loginBtn", {}, "Войти")}
               </Link>
             )}
           </div>
@@ -500,15 +500,15 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold mb-3">
               <GoWorkflow size={14} />
-              <span>{tab === TAB_MY ? t("listing.myWorkflows", {}, "Мои процессы") : "Публичные процессы"}</span>
+              <span>{tab === TAB_MY ? t("listing.myWorkflows", {}, "Мои процессы") : t("listing.publicWorkflows", {}, "Публичные процессы")}</span>
             </div>
             <h1 className="text-3xl md:text-5xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-zinc-200 to-zinc-500">
-              {tab === TAB_MY ? t("listing.title", {}, "Рабочие процессы") : "Галерея процессов"}
+              {tab === TAB_MY ? t("listing.title", {}, "Рабочие процессы") : t("listing.galleryTitle", {}, "Галерея процессов")}
             </h1>
             <p className="text-zinc-400 mt-2 text-sm md:text-base font-medium max-w-xl">
               {tab === TAB_MY
                 ? t("listing.subtitle", {}, "Создавайте, редактируйте и запускайте свои визуальные AI пайплайны.")
-                : "Исследуйте и копируйте публичные процессы, опубликованные сообществом."}
+                : t("listing.gallerySubtitle", {}, "Исследуйте и копируйте публичные процессы, опубликованные сообществом.")}
             </p>
           </div>
 
@@ -552,7 +552,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                 }`}
             >
               <HiOutlineGlobeAlt size={16} />
-              <span>Публичные</span>
+              <span>{t("listing.publicTab", {}, "Публичные")}</span>
               {publicWorkflows.length > 0 && (
                 <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-green-500/20 text-green-300 font-black">
                   {publicWorkflows.length}
@@ -569,7 +569,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={tab === TAB_MY ? "Поиск по процессам..." : "Поиск по галерее..."}
+                placeholder={tab === TAB_MY ? t("listing.searchMyPlaceholder", {}, "Поиск процессов...") : t("listing.searchPublicPlaceholder", {}, "Поиск по галерее...")}
                 className="w-full bg-white/[0.04] border border-white/10 hover:border-white/20 focus:border-blue-500/50 rounded-xl pl-10 pr-9 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none transition-all shadow-inner"
               />
               {searchQuery && (
@@ -577,7 +577,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                   type="button"
                   onClick={() => setSearchQuery("")}
                   className="absolute right-3 text-zinc-500 hover:text-white transition-colors cursor-pointer text-xs"
-                  title="Очистить"
+                  title={t("common.clear", {}, "Очистить")}
                 >
                   ✕
                 </button>
@@ -611,15 +611,15 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                     <div className="p-4 bg-white/5 rounded-2xl mb-4 text-zinc-500">
                       <FiSearch size={32} />
                     </div>
-                    <h2 className="text-base font-black text-white uppercase tracking-wider mb-1">Ничего не найдено</h2>
+                    <h2 className="text-base font-black text-white uppercase tracking-wider mb-1">{t("listing.noSearchResultsTitle", {}, "Ничего не найдено")}</h2>
                     <p className="text-zinc-500 mb-5 max-w-xs text-xs font-medium">
-                      По запросу «{searchQuery}» подходящих процессов не найдено.
+                      {t("listing.noSearchResultsSubtitle", { query: searchQuery }, `По запросу «${searchQuery}» подходящих процессов не найдено.`)}
                     </p>
                     <button
                       onClick={() => setSearchQuery("")}
                       className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-full text-xs font-bold transition-all cursor-pointer"
                     >
-                      Сбросить поиск
+                      {t("listing.resetSearch", {}, "Сбросить поиск")}
                     </button>
                   </div>
                 ) : (
@@ -629,19 +629,19 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
                     </div>
                     {tab === TAB_MY ? (
                       <>
-                        <h2 className="text-lg font-black text-white uppercase tracking-widest mb-1">Нет процессов</h2>
-                        <p className="text-zinc-500 mb-6 max-w-xs text-sm font-medium">Создайте свой первый визуальный AI процесс прямо сейчас</p>
+                        <h2 className="text-lg font-black text-white uppercase tracking-widest mb-1">{t("listing.noFlowsTitle", {}, "Нет созданных процессов")}</h2>
+                        <p className="text-zinc-500 mb-6 max-w-xs text-sm font-medium">{t("listing.noFlowsSubtitle", {}, "Создайте свой первый визуальный AI процесс прямо сейчас")}</p>
                         <button
                           onClick={handleCreateWorkFlow}
                           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-lg cursor-pointer"
                         >
-                          <FaPlus /> Создать процесс
+                          <FaPlus /> {t("listing.createWorkflow", {}, "Создать процесс")}
                         </button>
                       </>
                     ) : (
                       <>
-                        <h2 className="text-lg font-black text-white uppercase tracking-widest mb-1">Нет публичных процессов</h2>
-                        <p className="text-zinc-500 max-w-xs text-sm font-medium">Опубликованные процессы других участников сообщества появятся здесь</p>
+                        <h2 className="text-lg font-black text-white uppercase tracking-widest mb-1">{t("listing.noPublicFlowsTitle", {}, "Нет публичных процессов")}</h2>
+                        <p className="text-zinc-500 max-w-xs text-sm font-medium">{t("listing.noPublicFlowsSubtitle", {}, "Опубликованные процессы других участников сообщества появятся здесь")}</p>
                       </>
                     )}
                   </div>

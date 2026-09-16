@@ -10,7 +10,7 @@ import { TfiText } from "react-icons/tfi";
 import UploadNode from "./UploadNode"
 import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
-import { useGenerationCost } from "./useGenerationCost";
+import { useGenerationCost, calculateDynamicCost, extractDefaultFormValues } from "./useGenerationCost";
 import { useTranslation } from "../i18n";
 
 const inputHandles = [
@@ -57,52 +57,10 @@ const TextGeneration = ({ id, data, selected }) => {
     }
   }, [id, generationCost, data.cost]);
 
-
   const textareaRef = useRef(null);
 
   const initializeFormData = (schemaProperties) => {
-    const initialData = {};
-    const fieldEntries = Object.entries(schemaProperties || {});
-
-    fieldEntries.forEach(([fieldName, fieldSchema]) => {
-      if (fieldSchema.type === "array") {
-        if (fieldSchema.items?.type === "object") {
-          const examples = fieldSchema.examples;
-          if (Array.isArray(examples) && examples.length > 0) {
-            initialData[fieldName] = examples.map((ex) => ({ ...ex }));
-          } else {
-            initialData[fieldName] = [];
-          }
-        } else {
-          initialData[fieldName] = fieldSchema.examples || [];
-        }
-
-      } else if (fieldSchema.type === "object") {
-        const nestedProps = fieldSchema.properties || {};
-        initialData[fieldName] = initializeFormData(nestedProps);
-
-      } else if (fieldSchema.default !== undefined) {
-        initialData[fieldName] = fieldSchema.default;
-
-      } else if (fieldSchema.examples && fieldSchema.examples.length > 0) {
-        initialData[fieldName] = fieldSchema.examples[0];
-
-      } else {
-        switch (fieldSchema.type) {
-          case "boolean":
-            initialData[fieldName] = false;
-            break;
-          case "int":
-          case "number":
-            initialData[fieldName] = 0;
-            break;
-          default:
-            initialData[fieldName] = "";
-        }
-      }
-    });
-
-    return initialData;
+    return extractDefaultFormValues(schemaProperties);
   };
 
   const addFormValuesInTaskData = (properties) => {
@@ -344,11 +302,21 @@ const TextGeneration = ({ id, data, selected }) => {
         }
       }
 
+      let executionCost = generationCost;
+      try {
+        const costRes = await calculateDynamicCost(selectedModel.id, params);
+        if (costRes?.cost !== undefined && costRes?.cost !== null) {
+          executionCost = costRes.cost;
+        }
+      } catch (err) {
+        console.warn("Could not calculate dynamic cost before running text node:", err);
+      }
+
       const response = await axios.post(`/api/workflow/${workflow_id}/node/${id}/run`, {
         run_id: runId,
         model: selectedModel.id,
         params: params,
-        cost: generationCost,
+        cost: executionCost,
         node_id: "AI Text"
       });
       pollNodeStatus(response.data.run_id);

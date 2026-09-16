@@ -8,12 +8,14 @@ import { HiOutlineEye, HiOutlineEyeSlash } from "react-icons/hi2";
 import { FcGoogle } from "react-icons/fc";
 import { toast } from "react-hot-toast";
 import { useAuth } from "../../lib/auth";
+import { useTranslation, LanguageSwitcher } from "workflow-builder";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams?.get("redirect") || "/workflow";
   const { login, loginWithGoogle } = useAuth();
+  const { t } = useTranslation();
 
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
@@ -31,13 +33,13 @@ function LoginForm() {
     setError("");
     try {
       await login(email, password);
-      toast.success("Добро пожаловать!");
+      toast.success(t("auth.welcome", {}, "Добро пожаловать!"));
       router.push(redirect);
     } catch (err) {
       const detail = err.response?.data?.detail;
       const msg = detail === "Invalid email or password"
-        ? "Неверный email или пароль"
-        : (detail || "Ошибка входа. Проверьте соединение с сервером.");
+        ? t("auth.invalidCredentials", {}, "Неверный email или пароль")
+        : (detail || t("auth.invalidCredentials", {}, "Ошибка входа. Проверьте соединение с сервером."));
       setError(msg);
       toast.error(msg);
     } finally {
@@ -51,10 +53,10 @@ function LoginForm() {
     try {
       const axios = (await import("axios")).default;
       await axios.post("/api/auth/forgot-password", { email: forgotEmail });
-      toast.success("Письмо отправлено на вашу почту");
+      toast.success(t("auth.resetLinkSent", {}, "Письмо отправлено на вашу почту"));
       setForgotOpen(false);
     } catch {
-      toast.error("Ошибка при отправке письма");
+      toast.error(t("auth.resetError", {}, "Ошибка при отправке письма"));
     } finally {
       setForgotLoading(false);
     }
@@ -67,21 +69,26 @@ function LoginForm() {
       <div className="absolute bottom-[-15%] right-[-10%] w-[50%] h-[50%] bg-purple-600/8 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
 
-      <div className="relative z-10 w-full max-w-md px-4">
+      {/* Top right language switcher */}
+      <div className="absolute top-6 right-6 z-20">
+        <LanguageSwitcher />
+      </div>
+
+      <div className="relative z-10 w-full max-w-md px-4 py-8">
         {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
+        <Link href="/" className="flex items-center justify-center gap-2 mb-8 hover:opacity-90 transition">
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.4)]">
             <GoWorkflow className="text-white" size={20} />
           </div>
           <span className="text-white font-black text-xl tracking-tight">
-            Workflow<span className="text-blue-500">Pro</span>
+            {t("landing.brandName", {}, "Workflow")}<span className="text-blue-500">{t("landing.brandSuffix", {}, "Pro")}</span>
           </span>
-        </div>
+        </Link>
 
         {/* Card */}
         <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
-          <h1 className="text-2xl font-black text-white text-center mb-1">Войти в аккаунт</h1>
-          <p className="text-zinc-500 text-sm text-center mb-8">Добро пожаловать обратно</p>
+          <h1 className="text-2xl font-black text-white text-center mb-1">{t("auth.loginTitle", {}, "Войти в аккаунт")}</h1>
+          <p className="text-zinc-500 text-sm text-center mb-8">{t("auth.loginSubtitle", {}, "Добро пожаловать обратно")}</p>
 
           {/* Google */}
           <button
@@ -90,13 +97,13 @@ function LoginForm() {
             className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white rounded-xl px-4 py-3 font-semibold text-sm transition-all mb-6"
           >
             <FcGoogle size={20} />
-            Продолжить через Google
+            {t("auth.googleContinue", {}, "Продолжить через Google")}
           </button>
 
           {/* Divider */}
           <div className="flex items-center gap-3 mb-6">
             <div className="flex-1 h-px bg-white/10" />
-            <span className="text-zinc-600 text-xs font-bold uppercase tracking-widest">или</span>
+            <span className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{t("auth.or", {}, "или")}</span>
             <div className="flex-1 h-px bg-white/10" />
           </div>
 
@@ -111,14 +118,14 @@ function LoginForm() {
 
             <div>
               <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">
-                Email
+                {t("auth.emailLabel", {}, "Email")}
               </label>
               <input
                 id="login-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder", {}, "you@example.com")}
                 required
                 className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
               />
@@ -127,14 +134,14 @@ function LoginForm() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest">
-                  Пароль
+                  {t("auth.passwordLabel", {}, "Пароль")}
                 </label>
                 <button
                   type="button"
                   onClick={() => setForgotOpen(true)}
                   className="text-[11px] text-blue-400 hover:text-blue-300 font-bold uppercase tracking-widest transition-colors"
                 >
-                  Забыли?
+                  {t("auth.forgotPasswordLink", {}, "Забыли?")}
                 </button>
               </div>
               <div className="relative">
@@ -143,7 +150,7 @@ function LoginForm() {
                   type={showPwd ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Введите пароль"
+                  placeholder={t("auth.passwordPlaceholder", {}, "Введите пароль")}
                   required
                   className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 pr-11 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
                 />
@@ -166,16 +173,16 @@ function LoginForm() {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Вход...
+                  {t("auth.loggingIn", {}, "Вход...")}
                 </span>
-              ) : "Войти"}
+              ) : t("auth.loginBtn", {}, "Войти")}
             </button>
           </form>
 
           <p className="text-center text-sm text-zinc-500 mt-6">
-            Нет аккаунта?{" "}
+            {t("auth.noAccount", {}, "Нет аккаунта?")}{" "}
             <Link href="/auth/register" className="text-blue-400 hover:text-blue-300 font-bold transition-colors">
-              Зарегистрироваться
+              {t("auth.signUp", {}, "Зарегистрироваться")}
             </Link>
           </p>
         </div>
@@ -191,14 +198,14 @@ function LoginForm() {
             className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-2xl p-8 shadow-2xl animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">Сброс пароля</h3>
-            <p className="text-zinc-500 text-sm mb-6">Введите email — мы отправим ссылку для сброса</p>
+            <h3 className="text-lg font-black text-white uppercase tracking-widest mb-2">{t("auth.resetPasswordTitle", {}, "Сброс пароля")}</h3>
+            <p className="text-zinc-500 text-sm mb-6">{t("auth.resetPasswordSubtitle", {}, "Введите email — мы отправим ссылку для сброса")}</p>
             <form onSubmit={handleForgot} className="space-y-4">
               <input
                 type="email"
                 value={forgotEmail}
                 onChange={(e) => setForgotEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder", {}, "you@example.com")}
                 autoFocus
                 required
                 className="w-full bg-white/5 border border-white/10 focus:border-blue-500/60 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none transition-all"
@@ -209,14 +216,14 @@ function LoginForm() {
                   onClick={() => setForgotOpen(false)}
                   className="flex-1 py-3 rounded-xl text-zinc-400 hover:text-white hover:bg-white/5 font-bold text-sm transition-all"
                 >
-                  Отмена
+                  {t("common.cancel", {}, "Отмена")}
                 </button>
                 <button
                   type="submit"
                   disabled={forgotLoading}
                   className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-sm disabled:opacity-50 transition-all"
                 >
-                  {forgotLoading ? "Отправка..." : "Отправить"}
+                  {forgotLoading ? t("common.loading", {}, "Отправка...") : t("auth.sendResetLink", {}, "Отправить")}
                 </button>
               </div>
             </form>
@@ -238,4 +245,5 @@ export default function LoginPage() {
     </Suspense>
   );
 }
+
 
