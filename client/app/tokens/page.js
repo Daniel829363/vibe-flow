@@ -47,7 +47,6 @@ export default function TokensPage() {
   const [promoLoading, setPromoLoading] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
-  const [offers, setOffers] = useState([]);
 
   // ── Auth guard ──
   useEffect(() => {
@@ -89,23 +88,12 @@ export default function TokensPage() {
     }
   }, [t]);
 
-  // ── Fetch Offers ──
-  const fetchOffers = useCallback(async () => {
-    try {
-      const res = await axios.get("/api/payment/offers");
-      setOffers(res.data.offers || []);
-    } catch (err) {
-      console.error("Failed to fetch offers:", err);
-    }
-  }, []);
-
   // ── Initial load (runs once when user is available) ──
   useEffect(() => {
     if (user && !hasLoaded.current) {
       hasLoaded.current = true;
       fetchBalance();
       fetchTransactions(activeCategory, page);
-      fetchOffers();
     }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -223,7 +211,7 @@ export default function TokensPage() {
           <div className="flex items-center gap-2">
             <LanguageSwitcher />
             <button
-              onClick={() => { setPaymentModal(true); fetchOffers(); }}
+              onClick={() => { setPaymentModal(true); }}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white text-sm font-semibold transition shadow-lg shadow-emerald-500/20"
             >
               <FiCreditCard size={16} />
@@ -263,7 +251,7 @@ export default function TokensPage() {
 
             <div className="flex flex-col gap-3">
               <button
-                onClick={() => { setPaymentModal(true); fetchOffers(); }}
+                onClick={() => { setPaymentModal(true); }}
                 className="flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white text-sm font-bold transition shadow-xl shadow-emerald-500/20"
               >
                 <FiCreditCard size={18} />
@@ -377,9 +365,11 @@ export default function TokensPage() {
                       <div className={`text-base font-extrabold ${tx.amount_tokens > 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {tx.amount_tokens > 0 ? `+${tx.amount_tokens}` : tx.amount_tokens} 🪙
                       </div>
-                      <div className="text-xs text-zinc-500 font-medium">
-                        {tx.amount_usd > 0 ? `+$${tx.amount_usd.toFixed(2)}` : `-$${Math.abs(tx.amount_usd).toFixed(2)}`}
-                      </div>
+                      {tx.type !== "usage" && (
+                        <div className="text-xs text-zinc-500 font-medium">
+                          {tx.amount_usd > 0 ? `+$${tx.amount_usd.toFixed(2)}` : `-$${Math.abs(tx.amount_usd).toFixed(2)}`}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -527,39 +517,19 @@ export default function TokensPage() {
                     </div>
                   </div>
                   <span className="text-sm text-zinc-300">
-                    {t("tokens.agreeTerms", {}, "Оплачивая на нашей платформе вы соглашаетесь с")}{" "}
-                    {offers.length > 0 ? (
-                      offers.map((o, i) => (
-                        <span key={o.id}>
-                          {i > 0 && ", "}
-                          <a
-                            href={`/terms?lang=${o.language}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                            }}
-                            className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 inline-flex items-center gap-0.5 font-medium"
-                          >
-                            {t("tokens.termsOfPayment", {}, "условиями оплаты")} ({o.language.toUpperCase()})
-                            <FiExternalLink size={10} />
-                          </a>
-                        </span>
-                      ))
-                    ) : (
-                      <a
-                        href="/terms"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                        }}
-                        className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 inline-flex items-center gap-0.5 font-medium"
-                      >
-                        {t("tokens.termsOfPayment", {}, "условиями оплаты")}
-                        <FiExternalLink size={10} />
-                      </a>
-                    )}
+                    {t("tokens.agreeTerms", {}, "Оплачивая на нашей платформе, вы соглашаетесь с")}{" "}
+                    <a
+                      href={`/terms?lang=${locale || "ru"}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                      className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 inline-flex items-center gap-0.5 font-medium"
+                    >
+                      {t("tokens.termsOfPayment", {}, "условиями оплаты")}
+                      <FiExternalLink size={10} />
+                    </a>
                   </span>
                 </label>
               </div>
