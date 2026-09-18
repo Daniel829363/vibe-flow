@@ -101,9 +101,15 @@ export const getModelDefaultFormValues = (model, nodeSchemas) => {
   return extractDefaultFormValues(properties || {});
 };
 
+export const API_NODE_MODEL_IDS = new Set(["wavespeed", "straico", "runware", "genvr"]);
+
 export const calculateDynamicCost = async (taskName, payload) => {
   if (!taskName || taskName.includes("passthrough")) {
     return { cost: 0.0 };
+  }
+
+  if (API_NODE_MODEL_IDS.has(taskName)) {
+    return { cost: 0.025 };
   }
 
   const cleaned = cleanPayloadForCost(payload);
@@ -150,6 +156,16 @@ export const useGenerationCost = (selectedModel, formValues) => {
       setGenerationCostTokens(null);
       setIsRefreshingCost(false);
       lastRequestedKeyRef.current = "";
+      return;
+    }
+
+    if (API_NODE_MODEL_IDS.has(modelId)) {
+      const fixedCost = 0.025;
+      setGenerationCost(fixedCost);
+      const tokens = Math.round(Number(fixedCost) * tokenRate * 100) / 100;
+      setGenerationCostTokens(tokens);
+      setIsRefreshingCost(false);
+      lastRequestedKeyRef.current = `${modelId}::${serializedValues}`;
       return;
     }
 

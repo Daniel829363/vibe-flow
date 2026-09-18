@@ -202,7 +202,13 @@ async def get_workflow_api_outputs_helper(run_id: str):
     url = f"https://api.muapi.ai/workflow/run/{run_id}/api-outputs"
     return await proxy_request_helper("GET", url)
 
+API_MODEL_IDS = {"wavespeed", "straico", "runware", "genvr"}
+
 async def calculate_dynamic_cost_helper(payload: dict):
+    task_name = payload.get("task_name")
+    if task_name in API_MODEL_IDS:
+        return {"cost": 0.025}
+
     url = "https://api.muapi.ai/app/calculate_dynamic_cost"
     try:
         return await proxy_request_helper("POST", url, payload)

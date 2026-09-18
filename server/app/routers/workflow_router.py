@@ -576,7 +576,8 @@ async def run_node(
         # Re-verify dynamic cost with MuAPI based on actual model and params
         model = payload.get("model")
         params = payload.get("params") or {}
-        if model and not str(model).startswith("api-") and "passthrough" not in str(model):
+        API_MODEL_IDS = {"wavespeed", "straico", "runware", "genvr"}
+        if model and not str(model).startswith("api-") and "passthrough" not in str(model) and str(model) not in API_MODEL_IDS:
             try:
                 dynamic_res = await calculate_dynamic_cost_helper({
                     "task_name": model,

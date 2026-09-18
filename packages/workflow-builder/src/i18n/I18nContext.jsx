@@ -29,51 +29,39 @@ export const I18nProvider = ({ children, initialLocale = null }) => {
     return children;
   }
 
-  const [locale, setLocaleState] = useState(() => {
-    if (initialLocale && dictionaries[initialLocale]) return initialLocale;
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("vibe_workflow_lang");
-        if (saved && dictionaries[saved]) return saved;
-        const cookieMatch = document.cookie.match(/vibe_workflow_lang=([a-z]{2})/);
-        if (cookieMatch && dictionaries[cookieMatch[1]]) return cookieMatch[1];
-        const browserLang = navigator.language?.slice(0, 2)?.toLowerCase();
-        if (browserLang === "en") return "en";
-      } catch (e) {}
-    }
-    return "ru";
-  });
+  // Always start with the server-safe default to avoid SSR hydration mismatch.
+  // Client-side locale detection happens entirely in the useEffect below.
+  const [locale, setLocaleState] = useState(
+    initialLocale && dictionaries[initialLocale] ? initialLocale : "ru"
+  );
 
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("vibe_workflow_lang");
-        if (saved && dictionaries[saved]) {
-          setLocaleState(saved);
-          if (typeof document !== "undefined") {
-            document.documentElement.lang = saved;
-            document.documentElement.setAttribute("lang", saved);
-          }
-        } else if (!initialLocale) {
-          const cookieMatch = document.cookie.match(/vibe_workflow_lang=([a-z]{2})/);
-          if (cookieMatch && dictionaries[cookieMatch[1]]) {
-            setLocaleState(cookieMatch[1]);
-          } else {
-            const browserLang = navigator.language?.slice(0, 2)?.toLowerCase();
-            const targetLang = browserLang === "en" ? "en" : "ru";
-            setLocaleState(targetLang);
-            if (typeof document !== "undefined") {
-              document.documentElement.lang = targetLang;
-              document.documentElement.setAttribute("lang", targetLang);
-            }
-          }
-        }
-      } catch (e) {}
-    }
-  }, [initialLocale]);
+    // Skip if a fixed initialLocale was explicitly provided by the server
+    if (initialLocale && dictionaries[initialLocale]) return;
+    try {
+      // Priority: localStorage → cookie → browser language → 'ru'
+      const saved = localStorage.getItem("vibe_workflow_lang");
+      if (saved && dictionaries[saved]) {
+        setLocaleState(saved);
+        document.documentElement.lang = saved;
+        return;
+      }
+      const cookieMatch = document.cookie.match(/vibe_workflow_lang=([a-z]{2})/);
+      if (cookieMatch && dictionaries[cookieMatch[1]]) {
+        setLocaleState(cookieMatch[1]);
+        document.documentElement.lang = cookieMatch[1];
+        return;
+      }
+      const browserLang = navigator.language?.slice(0, 2)?.toLowerCase();
+      const targetLang = browserLang === "en" ? "en" : "ru";
+      setLocaleState(targetLang);
+      document.documentElement.lang = targetLang;
+    } catch (e) {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (typeof document !== "undefined" && locale) {
@@ -195,7 +183,8 @@ export const LanguageSwitcher = ({ className = "", compact = false }) => {
         title="Change Language"
       >
         <HiGlobeAlt className="text-blue-400 text-sm" />
-        <span>{compact ? currentLocale.shortLabel : currentLocale.label}</span>
+        {/* suppressHydrationWarning: label changes after hydration when client detects locale */}
+        <span suppressHydrationWarning>{compact ? currentLocale.shortLabel : currentLocale.label}</span>
         <FaAngleDown className={`text-[10px] text-zinc-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
       </button>
 

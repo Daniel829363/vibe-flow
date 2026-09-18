@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Vibe Workflow — Open-Source Alternative to Weavy AI, Krea Nodes, Freepik Spaces & FloraFauna AI",
+  title: "VibeFlow — Open-Source Alternative to Weavy AI, Krea Nodes, Freepik Spaces & FloraFauna AI",
   description:
-    "Vibe Workflow is a free, open-source, self-hostable node-based AI workflow builder. The best open-source alternative to Weavy AI, Krea Nodes, Freepik Spaces, and FloraFauna AI. Build generative AI pipelines with a visual node editor — no subscription required.",
+    "VibeFlow is a free, open-source, self-hostable node-based AI workflow builder. The best open-source alternative to Weavy AI, Krea Nodes, Freepik Spaces, and FloraFauna AI. Build generative AI pipelines with a visual node editor — no subscription required.",
   keywords: [
     "weavy ai alternative",
     "krea nodes alternative",

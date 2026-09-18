@@ -11,6 +11,7 @@ import { IoClose, IoTrashOutline } from "react-icons/io5";
 import { RiInputMethodLine } from "react-icons/ri";
 import NodeSendButton from "./NodeSendButton";
 import NodeOptionsMenu from "./NodeOptionsMenu";
+import { useGenerationCost, extractDefaultFormValues } from "./useGenerationCost";
 
 const outputHandles = [
   "apiOutput",
@@ -38,12 +39,14 @@ const ApiNode = ({ id, data, selected }) => {
   const nodes = useStore((state) => state.nodes);
   const modelSchema = nodeSchemas?.categories?.api?.models[selectedModel.id];  
   const textareaRef = useRef(null);
+  const { generationCost, generationCostTokens, isRefreshingCost } = useGenerationCost(selectedModel, formValues);
 
   useEffect(() => {
-    if (data.cost !== 0.025) {
-      data.onDataChange?.(id, { cost: 0.025 });
+    const cost = generationCost ?? 0.025;
+    if (data.cost !== cost) {
+      data.onDataChange?.(id, { cost });
     }
-  }, [id, data.cost]);
+  }, [id, generationCost, data.cost]);
 
   const initializeFormData = (schemaProperties) => {
     const initialData = {};
@@ -456,12 +459,13 @@ const ApiNode = ({ id, data, selected }) => {
       );
       params["params"] = filteredInputParams;
 
+      const executionCost = generationCost ?? 0.025;
       const response = await axios.post(`/api/workflow/${workflow_id}/node/${id}/run`,
         {
           run_id: runId,
           model: selectedModel.id,
           params: params,
-          cost: 0.025,
+          cost: executionCost,
           node_id: "API Node"
         }
       );
@@ -617,9 +621,19 @@ const ApiNode = ({ id, data, selected }) => {
         <h3 className="text-zinc-400 text-[10px] font-medium tracking-wider uppercase">
           Api {id.replace(/^\D+/g, "")}
         </h3>
-        <span className="text-xs text-blue-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
-          $0.025
-        </span>
+        {generationCost !== null && !selectedModel?.id?.includes("passthrough") && (
+          <span className="text-xs text-blue-500 -mt-0.5 font-medium flex items-center gap-1 opacity-80">
+            {isRefreshingCost ? (
+              <span className="flex items-center gap-1 italic text-blue-200">
+                <div className="w-2 h-2 border-[1.5px] border-blue-200/30 border-t-blue-400 rounded-full animate-spin"></div>
+              </span>
+            ) : (
+              <span title={generationCost !== null ? `$${generationCost} USD` : ""}>
+                {generationCost === 0 ? 'Free' : (`🪙 ${generationCostTokens ?? (generationCost * 100)} токенов`)}
+              </span>
+            )}
+          </span>
+        )}
       </div>
       <div className="flex flex-col">
         <div className="flex items-center justify-between bg-gradient-to-r from-[#151618] to-[#1c1e21] rounded-t-2xl border-b border-zinc-800 py-2 px-3">

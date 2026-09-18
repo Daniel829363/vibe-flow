@@ -2,7 +2,7 @@ import React from "react";
 import MediaManagerClient from "./MediaManagerClient";
 
 export const metadata = {
-  title: "Медиа-менеджер | Workflow Pro",
+  title: "Медиа-менеджер | VibeFlow",
   description: "Управление загруженными и сгенерированными медиа-материалами",
 };
 
