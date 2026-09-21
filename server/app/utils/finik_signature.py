@@ -1,6 +1,7 @@
 """
 Finik (AversPay QR) RSA-SHA256 signature service.
 Handles signing outgoing requests and verifying incoming webhooks.
+Reference: https://www.finik.kg/documentation/web-sdk/
 """
 import os
 import json
@@ -10,6 +11,17 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 logger = logging.getLogger(__name__)
+
+# Official Finik Production Public Key from https://www.finik.kg/documentation/web-sdk/reference/
+FINIK_PROD_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuF/PUmhMPPidcMxhZBPb
+BSGJoSphmCI+h6ru8fG8guAlcPMVlhs+ThTjw2LHABvciwtpj51ebJ4EqhlySPyT
+hqSfXI6Jp5dPGJNDguxfocohaz98wvT+WAF86DEglZ8dEsfoumojFUy5sTOBdHEu
+g94B4BbrJvjmBa1YIx9Azse4HFlWhzZoYPgyQpArhokeHOHIN2QFzJqeriANO+wV
+aUMta2AhRVZHbfyJ36XPhGO6A5FYQWgjzkI65cxZs5LaNFmRx6pjnhjIeVKKgF99
+4OoYCzhuR9QmWkPl7tL4Kd68qa/xHLz0Psnuhm0CStWOYUu3J7ZpzRK8GoEXRcr8
+tQIDAQAB
+-----END PUBLIC KEY-----"""
 
 
 def _sort_body_top_level(body: dict) -> dict:
@@ -25,7 +37,7 @@ def _create_canonical_string(
     query_params: dict | None = None,
     body: dict | None = None,
 ) -> str:
-    """Build the canonical string following Finik's spec (matching PHP/JS reference)."""
+    """Build the canonical string following Finik's spec (matching official Reference & Signer)."""
     parts = []
 
     # 1. HTTP Method in lowercase
@@ -129,7 +141,7 @@ def verify_webhook(
     provider_public_key_path: str = "",
 ) -> bool:
     """
-    Verify an incoming webhook signature from Finik using the official provider public key.
+    Verify an incoming webhook signature from Finik using the official Finik production public key.
     Handles proxy headers (X-Forwarded-Host) and URL routing safely.
     """
     from cryptography.hazmat.primitives import hashes, serialization
@@ -142,7 +154,7 @@ def verify_webhook(
         logger.error(f"Failed to decode base64 signature: {e}")
         return False
 
-    # Load provider public key strictly from environment variable or configured storage file
+    # 1. Determine provider public key
     key_bytes: bytes | None = None
 
     env_pub_key = os.getenv("FINIK_PROVIDER_PUBLIC_KEY", "").strip()
@@ -162,15 +174,11 @@ def verify_webhook(
                     if content:
                         key_bytes = content
             except Exception as e:
-                logger.error(f"Could not read Finik provider public key file {provider_public_key_path}: {e}")
-                return False
-        else:
-            logger.error(f"Finik provider public key file not found: {provider_public_key_path}")
-            return False
+                logger.warning(f"Could not read Finik provider public key file {provider_public_key_path}: {e}")
 
+    # Fallback to official Finik Production Public Key
     if not key_bytes:
-        logger.error("No valid Finik provider public key available for verification.")
-        return False
+        key_bytes = FINIK_PROD_PUBLIC_KEY.encode("utf-8")
 
     try:
         public_key = serialization.load_pem_public_key(key_bytes)
