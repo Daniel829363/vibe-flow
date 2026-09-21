@@ -10,12 +10,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 import httpx
+from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 
 from app.database import get_db
 from app.models.user import User
@@ -220,19 +221,60 @@ async def handle_finik_webhook(
     timestamp = (request.headers.get("x-api-timestamp") or "").strip()
 
     if not signature or not timestamp:
+        logger.warning(
+            f"Finik webhook missing headers: signature={'present' if signature else 'missing'}, "
+            f"timestamp={'present' if timestamp else 'missing'}"
+        )
         return JSONResponse({"error": "Missing headers"}, status_code=400)
 
     try:
         body = await request.json()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Finik webhook invalid JSON body: {e}")
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-    # Check account ID
-    account_id = os.getenv("FINIK_ACCOUNT_ID", "")
-    if body.get("accountId") and body["accountId"] != account_id:
+    # Check account ID if set in environment
+    account_id = os.getenv("FINIK_ACCOUNT_ID", "").strip('"\' ')
+    if account_id and body.get("accountId") and body["accountId"] != account_id:
+        logger.warning(f"Finik webhook accountId mismatch: expected {account_id}, got {body.get('accountId')}")
         return JSONResponse({"error": "Invalid accountId"}, status_code=403)
 
-    host = request.headers.get("host") or request.client.host
+    # Collect candidate hosts for proxy / reverse-proxy / domain transparency
+    candidate_hosts: list[str] = []
+
+    # 1. Forwarded host from Next.js rewrites or Nginx
+    x_forwarded_host = request.headers.get("x-forwarded-host")
+    if x_forwarded_host:
+        for h in x_forwarded_host.split(","):
+            h_clean = h.strip()
+            if h_clean and h_clean not in candidate_hosts:
+                candidate_hosts.append(h_clean)
+                if ":" in h_clean:
+                    candidate_hosts.append(h_clean.split(":")[0])
+
+    # 2. Direct Host header in request
+    req_host = request.headers.get("host")
+    if req_host:
+        req_host_clean = req_host.strip()
+        if req_host_clean not in candidate_hosts:
+            candidate_hosts.append(req_host_clean)
+        if ":" in req_host_clean:
+            candidate_hosts.append(req_host_clean.split(":")[0])
+
+    # 3. Host from APP_URL env
+    app_url = os.getenv("APP_URL", "").strip()
+    if app_url:
+        parsed_url = urlparse(app_url)
+        parsed_host = parsed_url.netloc or parsed_url.hostname
+        if parsed_host and parsed_host not in candidate_hosts:
+            candidate_hosts.append(parsed_host)
+            if ":" in parsed_host:
+                candidate_hosts.append(parsed_host.split(":")[0])
+
+    # 4. Host from FINIK_HOST env
+    finik_host = os.getenv("FINIK_HOST", "").strip('"\' ')
+    if finik_host and finik_host not in candidate_hosts:
+        candidate_hosts.append(finik_host)
 
     # Collect x-api-* headers
     x_api_headers = {}
@@ -242,28 +284,44 @@ async def handle_finik_webhook(
             x_api_headers[lower] = value
     x_api_headers["x-api-timestamp"] = timestamp
 
+    # Query params if present
+    query_params = dict(request.query_params) if request.query_params else None
+
+    # Candidate paths
+    req_path = request.url.path
+    candidate_paths = [req_path, "/api/payment/finik/webhook", "/finik/webhook"]
+
     # Verify signature
     is_valid = verify_webhook(
         http_method="post",
-        path="/api/payment/finik/webhook",
+        path=candidate_paths,
         timestamp=timestamp,
         signature_b64=signature,
         body=body,
-        host=host,
+        host=candidate_hosts,
         x_api_headers=x_api_headers,
+        query_params=query_params,
     )
 
     if not is_valid:
-        logger.warning("Finik webhook: invalid signature")
+        logger.warning(f"Finik webhook invalid signature. Headers: {dict(request.headers)}, Body: {body}")
         return JSONResponse({"error": "Invalid signature"}, status_code=401)
 
-    # Extract payment info
-    payment_id = (
-        body.get("fields", {}).get("PaymentId")
-        or body.get("fields", {}).get("paymentId")
-        or body.get("transactionId")
-    )
-    status_raw = (body.get("status") or "").lower()
+    # Extract payment identification
+    fields = body.get("fields") if isinstance(body.get("fields"), dict) else {}
+
+    possible_payment_ids = [
+        fields.get("PaymentId"),
+        fields.get("paymentId"),
+        body.get("paymentId"),
+        body.get("PaymentId"),
+        body.get("transactionId"),
+        fields.get("qrTransactionId"),
+        body.get("id"),
+    ]
+    possible_payment_ids = [str(pid).strip() for pid in possible_payment_ids if pid]
+
+    status_raw = str(body.get("status") or "").lower()
     status_map = {
         "succeeded": "SUCCEEDED",
         "success": "SUCCEEDED",
@@ -274,33 +332,55 @@ async def handle_finik_webhook(
     }
     payment_status = status_map.get(status_raw, "PENDING")
 
-    # Find payment
-    result = await db.execute(
-        select(FinikPayment).where(FinikPayment.payment_id == payment_id)
-    )
-    payment = result.scalar_one_or_none()
+    # Find payment record in database
+    payment = None
+    if possible_payment_ids:
+        result = await db.execute(
+            select(FinikPayment).where(
+                or_(
+                    FinikPayment.payment_id.in_(possible_payment_ids),
+                    FinikPayment.transaction_id.in_(possible_payment_ids),
+                )
+            )
+        )
+        payment = result.scalar_one_or_none()
+
     if not payment:
+        logger.warning(f"Finik payment not found for candidate IDs: {possible_payment_ids}")
         return JSONResponse({"error": "Payment not found"}, status_code=404)
 
     was_succeeded = payment.status == "SUCCEEDED"
 
-    # Update payment
-    payment.transaction_id = body.get("transactionId")
+    # Update payment record
+    if body.get("transactionId"):
+        payment.transaction_id = str(body.get("transactionId"))
     payment.status = payment_status
-    payment.net = float(body.get("net", payment.amount_kgs))
-    payment.receipt_number = body.get("receiptNumber")
-    payment.transaction_date = body.get("transactionDate")
-    payment.webhook_payload = json.dumps(body)
+    if body.get("net") is not None:
+        try:
+            payment.net = float(body.get("net"))
+        except (ValueError, TypeError):
+            pass
+    elif payment.net is None:
+        payment.net = payment.amount_kgs
 
-    # Credit tokens if newly succeeded
+    if body.get("receiptNumber"):
+        payment.receipt_number = str(body.get("receiptNumber"))
+    if body.get("transactionDate"):
+        try:
+            payment.transaction_date = int(body.get("transactionDate"))
+        except (ValueError, TypeError):
+            pass
+    payment.webhook_payload = json.dumps(body, ensure_ascii=False)
+
+    # Credit tokens to user balance if newly succeeded
     if payment_status == "SUCCEEDED" and not was_succeeded:
         # Fetch user
         user_result = await db.execute(select(User).where(User.id == payment.user_id))
         user = user_result.scalar_one_or_none()
         if user:
             # Credit main tokens
-            tokens = payment.tokens_credited
-            user.token_balance = (user.token_balance or 0.0) + tokens
+            tokens = float(payment.tokens_credited or 0.0)
+            user.token_balance = float(user.token_balance or 0.0) + tokens
 
             # Create token transaction
             tx = TokenTransaction(
@@ -313,17 +393,19 @@ async def handle_finik_webhook(
             db.add(tx)
 
             # Handle promo code cashback
-            if payment.promo_code_id and payment.cashback_tokens > 0:
-                user.token_balance += payment.cashback_tokens
+            if payment.promo_code_id and payment.cashback_tokens and payment.cashback_tokens > 0:
+                cashback = float(payment.cashback_tokens)
+                user.token_balance += cashback
 
-                cashback_usd = round(payment.cashback_tokens / float(os.getenv("TOKEN_RATE_PER_DOLLAR", "100")), 4)
+                rate = float(os.getenv("TOKEN_RATE_PER_DOLLAR", "100"))
+                cashback_usd = round(cashback / rate, 4) if rate > 0 else 0.0
 
                 cashback_tx = TokenTransaction(
                     user_id=user.id,
-                    amount_tokens=payment.cashback_tokens,
+                    amount_tokens=cashback,
                     amount_usd=cashback_usd,
                     type=TransactionTypeEnum.TOPUP,
-                    description=f"Кешбек по промокоду: +{payment.cashback_tokens:.2f} токенов",
+                    description=f"Кешбек по промокоду: +{cashback:.2f} токенов",
                 )
                 db.add(cashback_tx)
 
@@ -332,7 +414,7 @@ async def handle_finik_webhook(
                     promo_code_id=payment.promo_code_id,
                     user_id=user.id,
                     payment_id=payment.id,
-                    cashback_amount_tokens=payment.cashback_tokens,
+                    cashback_amount_tokens=cashback,
                     cashback_amount_usd=cashback_usd,
                 )
                 db.add(usage)
@@ -344,6 +426,8 @@ async def handle_finik_webhook(
                 promo = promo_result.scalar_one_or_none()
                 if promo:
                     promo.current_uses += 1
+
+            logger.info(f"Successfully credited {tokens} tokens to user #{user.id} for Finik payment {payment.payment_id}")
 
     await db.commit()
     return {"success": True}

@@ -16,10 +16,10 @@
 #
 #   3. Добавьте в crontab:
 #      crontab -e
-#      0 3 * * * /opt/vibeflow/scripts/backup_db.sh >> /var/log/vibeflow-backup.log 2>&1
+#      0 3 * * * /home/ubuntu/vibe-flow/scripts/backup_db.sh >> /var/log/vibeflow-backup.log 2>&1
 #
 #   Или через файл в /etc/cron.d/:
-#      echo "0 3 * * * root /opt/vibeflow/scripts/backup_db.sh >> /var/log/vibeflow-backup.log 2>&1" \
+#      echo "0 3 * * * root /home/ubuntu/vibe-flow/scripts/backup_db.sh >> /var/log/vibeflow-backup.log 2>&1" \
 #        | sudo tee /etc/cron.d/vibeflow-backup
 #      sudo chmod 644 /etc/cron.d/vibeflow-backup
 #
