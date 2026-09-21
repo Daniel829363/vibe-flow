@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Stage 3: Development runtime for live reload
 FROM base AS dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8000
@@ -24,10 +27,14 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload
 
 # Stage 4: Production runtime
 FROM base AS production
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 1001 appgroup && \
     useradd --system --uid 1001 --gid appgroup appuser
 
-RUN mkdir -p /app/uploads/offers /app/storage && \
+RUN mkdir -p /app/uploads/offers /app/storage /app/storage/backups && \
     chown -R appuser:appgroup /app
 
 COPY --from=builder /root/.local /home/appuser/.local

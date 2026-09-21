@@ -17,8 +17,17 @@ class Base(DeclarativeBase):
 
 async def get_db():
     """Dependency for FastAPI routes — yields an async database session."""
-    async with async_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    session = async_session()
+    try:
+      yield session
+    except Exception:
+      try:
+        await session.rollback()
+      except Exception:
+        pass
+      raise
+    finally:
+      try:
+        await session.close()
+      except Exception:
+        pass

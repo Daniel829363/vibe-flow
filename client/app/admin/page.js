@@ -34,13 +34,18 @@ import {
   FiCopy,
   FiCalendar,
   FiSliders,
+  FiDatabase,
+  FiDownload,
+  FiUpload,
+  FiAlertTriangle,
+  FiHardDrive,
 } from "react-icons/fi";
 
 export default function AdminPage() {
   const { user, loading: authLoading, setImpersonationTokens } = useAuth();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState("users"); // "users" | "workflows" | "transactions" | "promos" | "offers"
+  const [activeTab, setActiveTab] = useState("users"); // "users" | "workflows" | "transactions" | "promos" | "offers" | "backup"
   const [stats, setStats] = useState({ total_users: 0, total_tokens: 0, total_workflows: 0, token_rate: 100 });
   const [adminConfig, setAdminConfig] = useState({ token_rate_per_dollar: 100, token_price_coefficient: 1, super_admin_email: "" });
 
@@ -102,6 +107,14 @@ export default function AdminPage() {
   const [offerCustomLang, setOfferCustomLang] = useState("");
   const [offerFile, setOfferFile] = useState(null);
   const [uploadingOffer, setUploadingOffer] = useState(false);
+
+  // ── Backup State ──
+  const [backups, setBackups] = useState([]);
+  const [backupsLoading, setBackupsLoading] = useState(false);
+  const [backupDownloading, setBackupDownloading] = useState(false);
+  const [backupRestoring, setBackupRestoring] = useState(false);
+  const [restoreFile, setRestoreFile] = useState(null);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
 
   // ── Modals State (Users & Tokens) ──
   const [createUserModal, setCreateUserModal] = useState(false);
@@ -234,6 +247,74 @@ export default function AdminPage() {
     }
   }, []);
 
+  // ── Fetch Backups ──
+  const fetchBackups = useCallback(async () => {
+    setBackupsLoading(true);
+    try {
+      const res = await axios.get("/api/admin/backup/list");
+      setBackups(res.data.backups || []);
+    } catch (err) {
+      console.error("Failed to load backups:", err);
+    } finally {
+      setBackupsLoading(false);
+    }
+  }, []);
+
+  // ── Backup Handlers ──
+  const handleDownloadBackup = async (format = "dump") => {
+    setBackupDownloading(true);
+    try {
+      const endpoint = format === "sql" ? "/api/admin/backup/download-sql" : "/api/admin/backup/download";
+      const res = await axios.get(endpoint, { responseType: "blob" });
+      const contentDisposition = res.headers["content-disposition"];
+      let filename = `vibeflow_backup.${format}`;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match) filename = match[1];
+      }
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(`Бекап (${format.toUpperCase()}) скачан успешно!`);
+      fetchBackups();
+    } catch (err) {
+      console.error("Backup download failed:", err);
+      toast.error(err.response?.data?.detail || "Ошибка скачивания бекапа");
+    } finally {
+      setBackupDownloading(false);
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (!restoreFile) {
+      toast.error("Выберите файл бекапа");
+      return;
+    }
+    setBackupRestoring(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", restoreFile);
+      const res = await axios.post("/api/admin/backup/restore", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 300000, // 5 minutes for large backups
+      });
+      toast.success(res.data.message || "База данных восстановлена!");
+      setRestoreFile(null);
+      setShowRestoreConfirm(false);
+      fetchBackups();
+    } catch (err) {
+      console.error("Backup restore failed:", err);
+      toast.error(err.response?.data?.detail || "Ошибка восстановления бекапа");
+    } finally {
+      setBackupRestoring(false);
+    }
+  };
+
   // Trigger loads on tab changes
   useEffect(() => {
     if (user?.is_superadmin) {
@@ -246,8 +327,9 @@ export default function AdminPage() {
         fetchOffersAdmin();
         fetchLegalDocsAdmin();
       }
+      if (activeTab === "backup") fetchBackups();
     }
-  }, [activeTab, fetchUsers, fetchWorkflows, fetchTransactions, fetchPromos, fetchOffersAdmin, fetchLegalDocsAdmin, fetchAdminConfig, user?.is_superadmin]);
+  }, [activeTab, fetchUsers, fetchWorkflows, fetchTransactions, fetchPromos, fetchOffersAdmin, fetchLegalDocsAdmin, fetchBackups, fetchAdminConfig, user?.is_superadmin]);
 
   // ── Handle User Impersonation ──
   const handleImpersonate = async (targetUser) => {
@@ -682,6 +764,16 @@ export default function AdminPage() {
             }`}
           >
             <FiFileText size={16} /> Документы PDF ({offers.length + legalDocs.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("backup")}
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-sm transition ${
+              activeTab === "backup"
+                ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40"
+            }`}
+          >
+            <FiDatabase size={16} /> Бекапы БД
           </button>
         </div>
 
@@ -1686,7 +1778,262 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* ── TAB 6: DATABASE BACKUP ── */}
+        {activeTab === "backup" && (
+          <div className="space-y-6">
+            {/* Download Section */}
+            <div className="p-6 rounded-2xl bg-[#14151c] border border-zinc-800/80">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
+                  <FiDownload size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Скачать бекап</h3>
+                  <p className="text-xs text-zinc-500">Создать и скачать резервную копию базы данных</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={() => handleDownloadBackup("dump")}
+                  disabled={backupDownloading}
+                  className="flex items-center gap-3 px-5 py-4 rounded-xl bg-gradient-to-r from-indigo-600/20 to-violet-600/20 border border-indigo-500/30 hover:border-indigo-400/50 text-white transition group disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="p-2 rounded-lg bg-indigo-500/20 group-hover:bg-indigo-500/30 transition">
+                    <FiHardDrive size={18} className="text-indigo-400" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-sm font-semibold">Формат .dump</div>
+                    <div className="text-[11px] text-zinc-400">Сжатый формат pg_dump (рекомендуется)</div>
+                  </div>
+                  {backupDownloading && <FiRefreshCw size={16} className="animate-spin ml-auto text-indigo-400" />}
+                </button>
+
+                <button
+                  onClick={() => handleDownloadBackup("sql")}
+                  disabled={backupDownloading}
+                  className="flex items-center gap-3 px-5 py-4 rounded-xl bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/30 hover:border-emerald-400/50 text-white transition group disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="p-2 rounded-lg bg-emerald-500/20 group-hover:bg-emerald-500/30 transition">
+                    <FiFileText size={18} className="text-emerald-400" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-sm font-semibold">Формат .sql</div>
+                    <div className="text-[11px] text-zinc-400">Текстовый SQL-дамп для просмотра</div>
+                  </div>
+                  {backupDownloading && <FiRefreshCw size={16} className="animate-spin ml-auto text-emerald-400" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Restore Section */}
+            <div className="p-6 rounded-2xl bg-[#14151c] border border-zinc-800/80">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400">
+                  <FiUpload size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Восстановить из бекапа</h3>
+                  <p className="text-xs text-zinc-500">Загрузить файл бекапа (.dump или .sql) для восстановления БД</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-start gap-4">
+                <label className="flex-1 w-full">
+                  <div className={`flex items-center justify-center gap-3 px-5 py-6 rounded-xl border-2 border-dashed transition cursor-pointer ${
+                    restoreFile
+                      ? "border-amber-500/50 bg-amber-500/5"
+                      : "border-zinc-700 hover:border-zinc-500 bg-zinc-900/50"
+                  }`}>
+                    {restoreFile ? (
+                      <>
+                        <FiCheckCircle size={20} className="text-amber-400" />
+                        <div>
+                          <div className="text-sm font-medium text-white">{restoreFile.name}</div>
+                          <div className="text-[11px] text-zinc-400">{(restoreFile.size / 1024 / 1024).toFixed(2)} MB</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); setRestoreFile(null); }}
+                          className="ml-auto text-zinc-500 hover:text-rose-400 transition"
+                        >
+                          <FiXCircle size={18} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <FiUploadCloud size={24} className="text-zinc-500" />
+                        <div className="text-sm text-zinc-400">
+                          Нажмите чтобы выбрать файл <span className="text-zinc-600">(.dump или .sql)</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept=".dump,.sql"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setRestoreFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+
+                <button
+                  onClick={() => {
+                    if (!restoreFile) {
+                      toast.error("Сначала выберите файл бекапа");
+                      return;
+                    }
+                    setShowRestoreConfirm(true);
+                  }}
+                  disabled={!restoreFile || backupRestoring}
+                  className="px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold shadow-lg shadow-amber-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                >
+                  {backupRestoring ? (
+                    <><FiRefreshCw size={16} className="animate-spin" /> Восстановление...</>
+                  ) : (
+                    <><FiUpload size={16} /> Восстановить</>
+                  )}
+                </button>
+              </div>
+
+              {/* Danger Warning */}
+              <div className="mt-4 p-3 rounded-xl bg-rose-500/5 border border-rose-500/20">
+                <div className="flex items-start gap-2">
+                  <FiAlertTriangle size={16} className="text-rose-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-rose-300/80 leading-relaxed">
+                    <strong>Внимание!</strong> Восстановление из бекапа <strong>полностью заменит</strong> текущие данные базы.
+                    Рекомендуется сначала скачать текущий бекап перед восстановлением.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Saved Backups List */}
+            <div className="p-6 rounded-2xl bg-[#14151c] border border-zinc-800/80">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-violet-500/10 text-violet-400">
+                    <FiHardDrive size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Сохранённые бекапы</h3>
+                    <p className="text-xs text-zinc-500">Бекапы, сохранённые на сервере</p>
+                  </div>
+                </div>
+                <button
+                  onClick={fetchBackups}
+                  className="p-2.5 rounded-xl bg-zinc-800/60 hover:bg-zinc-700/60 text-zinc-400 hover:text-white transition"
+                  title="Обновить список"
+                >
+                  <FiRefreshCw size={16} className={backupsLoading ? "animate-spin" : ""} />
+                </button>
+              </div>
+
+              {backupsLoading ? (
+                <div className="text-center py-8 text-zinc-500 text-sm">Загрузка...</div>
+              ) : backups.length === 0 ? (
+                <div className="text-center py-8">
+                  <FiDatabase size={32} className="mx-auto text-zinc-600 mb-2" />
+                  <div className="text-sm text-zinc-500">Нет сохранённых бекапов</div>
+                  <div className="text-xs text-zinc-600 mt-1">Скачайте бекап — он автоматически сохранится на сервере</div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-zinc-800/70">
+                  <table className="w-full text-left text-sm text-zinc-300">
+                    <thead className="bg-zinc-900/60 text-xs uppercase text-zinc-500">
+                      <tr>
+                        <th className="px-4 py-3">Файл</th>
+                        <th className="px-4 py-3">Размер</th>
+                        <th className="px-4 py-3">Дата создания</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/60">
+                      {backups.map((b, i) => (
+                        <tr key={i} className="hover:bg-zinc-800/30 transition">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <FiFileText size={14} className={b.filename.endsWith(".sql") ? "text-emerald-400" : "text-indigo-400"} />
+                              <span className="text-xs font-medium">{b.filename}</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                b.filename.endsWith(".sql")
+                                  ? "bg-emerald-500/20 text-emerald-400"
+                                  : "bg-indigo-500/20 text-indigo-400"
+                              }`}>
+                                {b.filename.endsWith(".sql") ? "SQL" : "DUMP"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-zinc-400">
+                            {b.size_bytes < 1024
+                              ? `${b.size_bytes} B`
+                              : b.size_bytes < 1048576
+                              ? `${(b.size_bytes / 1024).toFixed(1)} KB`
+                              : `${(b.size_bytes / 1048576).toFixed(2)} MB`
+                            }
+                          </td>
+                          <td className="px-4 py-3 text-xs text-zinc-400">
+                            {b.created_at ? new Date(b.created_at).toLocaleString() : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       </main>
+
+      {/* Restore Confirm Modal */}
+      {showRestoreConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#161720] border border-zinc-800 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400">
+                <FiAlertTriangle size={22} />
+              </div>
+              <h2 className="text-lg font-bold text-white">Подтверждение восстановления</h2>
+            </div>
+
+            <div className="p-4 rounded-xl bg-rose-500/5 border border-rose-500/20">
+              <p className="text-sm text-rose-300/90 leading-relaxed">
+                Вы уверены, что хотите восстановить базу данных из файла <strong className="text-white">{restoreFile?.name}</strong>?
+              </p>
+              <p className="text-xs text-rose-400/70 mt-2">
+                ⚠️ Все текущие данные будут заменены данными из бекапа. Это действие необратимо.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowRestoreConfirm(false)}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm transition"
+                disabled={backupRestoring}
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleRestoreBackup}
+                disabled={backupRestoring}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold transition flex items-center gap-2 disabled:opacity-50"
+              >
+                {backupRestoring ? (
+                  <><FiRefreshCw size={14} className="animate-spin" /> Восстановление...</>
+                ) : (
+                  <>Да, восстановить</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═════════════════════════════════════════════════════════════════════════ */}
       {/* ── MODALS ────────────────────────────────────────────────────────────── */}

@@ -1,16 +1,22 @@
 import os
 import uuid
 import logging
+import subprocess
+import asyncio
+import tempfile
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr
 from fastapi import APIRouter, HTTPException, Depends, status, Query, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, and_
 from sqlalchemy.orm import selectinload
 
-from app.database import get_db
+import re
+from urllib.parse import urlparse, unquote
+from app.database import get_db, engine
 from app.models.user import User
 from app.models.workflow_meta import WorkflowMeta, VisibilityEnum
 from app.models.token_transaction import TokenTransaction, TransactionTypeEnum
@@ -889,3 +895,309 @@ async def delete_legal_document(
     await db.delete(doc)
     await db.commit()
     return {"message": "Документ удален", "doc_id": doc_id}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── Database Backup & Restore ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+BACKUP_DIR = Path(__file__).resolve().parent.parent.parent / "storage" / "backups"
+BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _parse_db_url() -> dict:
+    """Parse DATABASE_URL into components for pg_dump/pg_restore."""
+    raw_url = os.getenv("DIRECT_URL", os.getenv(
+        "DATABASE_URL", "postgresql://postgres:postgres@db:5432/vibeflow"
+    ))
+    if "://" in raw_url:
+        scheme, rest = raw_url.split("://", 1)
+        raw_url = f"postgresql://{rest}"
+    parsed = urlparse(raw_url)
+    user = unquote(parsed.username or "postgres")
+    password = unquote(parsed.password or "postgres")
+    host = parsed.hostname or "db"
+    port = str(parsed.port or 5432)
+    dbname = parsed.path.lstrip("/").split("?")[0] or "vibeflow"
+    return {"user": user, "password": password, "host": host, "port": port, "dbname": dbname}
+
+
+@router.get("/backup/download")
+async def download_backup(
+    admin: User = Depends(get_superadmin),
+):
+    """Create a full database backup (pg_dump custom format) and stream it as download."""
+    db_info = _parse_db_url()
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"vibeflow_backup_{timestamp}.dump"
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = db_info["password"]
+
+    # Release any idle pool connections before dumping
+    await engine.dispose()
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "pg_dump",
+            "-h", db_info["host"],
+            "-p", db_info["port"],
+            "-U", db_info["user"],
+            "-d", db_info["dbname"],
+            "-Fc",  # custom format (compressed, supports pg_restore)
+            "--no-owner",
+            "--no-privileges",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode("utf-8", errors="replace")
+            logger.error(f"pg_dump failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=f"Ошибка создания бекапа: {error_msg}")
+
+        if not stdout:
+            raise HTTPException(status_code=500, detail="pg_dump вернул пустой результат")
+
+        # Also save a local copy
+        backup_path = BACKUP_DIR / filename
+        with open(backup_path, "wb") as f:
+            f.write(stdout)
+
+        logger.info(f"Admin {admin.email} downloaded backup: {filename} ({len(stdout)} bytes)")
+
+        from io import BytesIO
+        return StreamingResponse(
+            BytesIO(stdout),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="pg_dump не найден. Убедитесь, что PostgreSQL клиент установлен в контейнере.")
+
+
+@router.get("/backup/download-sql")
+async def download_backup_sql(
+    admin: User = Depends(get_superadmin),
+):
+    """Create a full database backup in plain SQL format."""
+    db_info = _parse_db_url()
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"vibeflow_backup_{timestamp}.sql"
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = db_info["password"]
+
+    # Release any idle pool connections before dumping
+    await engine.dispose()
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "pg_dump",
+            "-h", db_info["host"],
+            "-p", db_info["port"],
+            "-U", db_info["user"],
+            "-d", db_info["dbname"],
+            "--clean",
+            "--if-exists",
+            "--no-owner",
+            "--no-privileges",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode("utf-8", errors="replace")
+            logger.error(f"pg_dump (SQL) failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=f"Ошибка создания бекапа: {error_msg}")
+
+        logger.info(f"Admin {admin.email} downloaded SQL backup: {filename} ({len(stdout)} bytes)")
+
+        from io import BytesIO
+        return StreamingResponse(
+            BytesIO(stdout),
+            media_type="application/sql",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="pg_dump не найден.")
+
+
+@router.post("/backup/restore")
+async def restore_backup(
+    file: UploadFile = File(...),
+    admin: User = Depends(get_superadmin),
+):
+    """Restore database from an uploaded backup file (.dump or .sql)."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Файл не предоставлен")
+
+    is_custom_format = file.filename.endswith(".dump")
+    is_sql_format = file.filename.endswith(".sql")
+
+    if not is_custom_format and not is_sql_format:
+        raise HTTPException(
+            status_code=400,
+            detail="Допустимые форматы: .dump (pg_dump custom) или .sql (plain SQL)",
+        )
+
+    db_info = _parse_db_url()
+    content = await file.read()
+
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Файл бекапа пустой")
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = db_info["password"]
+
+    # 1. Dispose SQLAlchemy connection pool to avoid lock contention / deadlocks during restore
+    await engine.dispose()
+
+    # 2. Terminate any other connections holding locks on the target database
+    try:
+        term_proc = await asyncio.create_subprocess_exec(
+            "psql",
+            "-h", db_info["host"],
+            "-p", db_info["port"],
+            "-U", db_info["user"],
+            "-d", "postgres",
+            "-c", f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_info['dbname']}' AND pid <> pg_backend_pid();",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        await asyncio.wait_for(term_proc.communicate(), timeout=10)
+    except Exception as e:
+        logger.warning(f"Could not terminate backends prior to restore: {e}")
+
+    # 3. Write uploaded file to temporary file (cleaning PG17 specific config from SQL if needed)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+        if is_sql_format:
+            # Comment out PostgreSQL 17 specific transaction_timeout if present
+            cleaned_sql = re.sub(
+                rb"(?i)^\s*SET\s+transaction_timeout\s*=\s*\d+\s*;",
+                b"-- SET transaction_timeout = 0;",
+                content,
+                flags=re.MULTILINE,
+            )
+            tmp.write(cleaned_sql)
+        else:
+            tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        if is_custom_format:
+            # Use pg_restore for .dump files
+            process = await asyncio.create_subprocess_exec(
+                "pg_restore",
+                "-h", db_info["host"],
+                "-p", db_info["port"],
+                "-U", db_info["user"],
+                "-d", db_info["dbname"],
+                "--clean",
+                "--if-exists",
+                "--no-owner",
+                "--no-privileges",
+                tmp_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode("utf-8", errors="replace")
+                # Filter out harmless notices (transaction_timeout, already exists, does not exist, errors ignored warning)
+                critical_errors = [
+                    line for line in error_msg.splitlines()
+                    if ("ERROR:" in line.upper() or "FATAL:" in line.upper())
+                    and "transaction_timeout" not in line
+                    and "already exists" not in line
+                    and "does not exist" not in line
+                    and "errors ignored on restore" not in line.lower()
+                ]
+                if critical_errors:
+                    logger.error(f"pg_restore failed: {error_msg}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Ошибка восстановления: {critical_errors[0][:300]}",
+                    )
+                else:
+                    logger.warning(f"pg_restore completed with notices: {error_msg[:300]}")
+        else:
+            # Use psql for .sql files
+            process = await asyncio.create_subprocess_exec(
+                "psql",
+                "-h", db_info["host"],
+                "-p", db_info["port"],
+                "-U", db_info["user"],
+                "-d", db_info["dbname"],
+                "-f", tmp_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode("utf-8", errors="replace")
+                critical_errors = [
+                    line for line in error_msg.splitlines()
+                    if ("ERROR:" in line.upper() or "FATAL:" in line.upper())
+                    and "transaction_timeout" not in line
+                ]
+                if critical_errors:
+                    logger.error(f"psql restore failed: {error_msg}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Ошибка восстановления: {critical_errors[0][:300]}",
+                    )
+
+        logger.info(
+            f"Admin {admin.email} restored backup from {file.filename} ({len(content)} bytes)"
+        )
+
+        return {
+            "message": "База данных успешно восстановлена из бекапа",
+            "filename": file.filename,
+            "size_bytes": len(content),
+        }
+
+    except FileNotFoundError:
+        tool = "pg_restore" if is_custom_format else "psql"
+        raise HTTPException(
+            status_code=500,
+            detail=f"{tool} не найден. Убедитесь, что PostgreSQL клиент установлен в контейнере.",
+        )
+    finally:
+        # Reset engine pool after database contents have changed
+        await engine.dispose()
+        # Clean up temp file
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+@router.get("/backup/list")
+async def list_backups(
+    admin: User = Depends(get_superadmin),
+):
+    """List locally stored backup files."""
+    backups = []
+    if BACKUP_DIR.exists():
+        for f in sorted(BACKUP_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if f.is_file() and (f.suffix in (".dump", ".sql")):
+                stat = f.stat()
+                backups.append({
+                    "filename": f.name,
+                    "size_bytes": stat.st_size,
+                    "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                })
+    return {"backups": backups}
