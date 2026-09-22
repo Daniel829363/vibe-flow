@@ -47,22 +47,23 @@ async def change_password(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not current_user.hashed_password:
-        raise HTTPException(
-            status_code=400,
-            detail="This account uses Google login and has no password. Set a password first."
-        )
-
-    if not verify_password(payload.old_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    # If user currently has a password set, require and verify the old password
+    if current_user.hashed_password:
+        if not payload.old_password:
+            raise HTTPException(status_code=400, detail="Текущий пароль обязателен")
+        if not verify_password(payload.old_password, current_user.hashed_password):
+            raise HTTPException(status_code=400, detail="Текущий пароль указан неверно")
 
     if len(payload.new_password) < 8:
-        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+        raise HTTPException(status_code=400, detail="Новый пароль должен содержать минимум 8 символов")
 
+    is_initial_set = not bool(current_user.hashed_password)
     current_user.hashed_password = hash_password(payload.new_password)
     await db.commit()
+    await db.refresh(current_user)
 
-    return {"message": "Password changed successfully"}
+    msg = "Пароль успешно установлен" if is_initial_set else "Пароль успешно изменён"
+    return {"message": msg, "user": current_user.to_dict()}
 
 
 # ─────────────────────────────────────────────

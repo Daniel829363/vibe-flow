@@ -8,7 +8,7 @@ import { FaPlus, FaCopy } from "react-icons/fa6";
 import { FiTrash2, FiSearch } from "react-icons/fi";
 import { GoWorkflow } from "react-icons/go";
 import { SlOptions } from "react-icons/sl";
-import { HiOutlineGlobeAlt, HiOutlineLockClosed, HiOutlineUserGroup, HiOutlineCog6Tooth, HiOutlinePhoto } from "react-icons/hi2";
+import { HiOutlineGlobeAlt, HiOutlineLockClosed, HiOutlineUserGroup, HiOutlineCog6Tooth, HiOutlinePhoto, HiOutlineClock } from "react-icons/hi2";
 import { toast } from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { useTranslation, LanguageSwitcher } from "workflow-builder";
@@ -16,6 +16,7 @@ import { useAuth } from "../lib/auth";
 import ShareModal from "./ShareModal";
 import SettingsModal from "./SettingsModal";
 import CoverImageModal from "./CoverImageModal";
+import RunHistoryModal from "./RunHistoryModal";
 
 const TAB_MY = "my";
 const TAB_PUBLIC = "public";
@@ -42,6 +43,7 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
   const [shareWorkflow, setShareWorkflow] = useState(null);
   const [settingsWorkflow, setSettingsWorkflow] = useState(null);
   const [coverWorkflow, setCoverWorkflow] = useState(null);
+  const [historyWorkflow, setHistoryWorkflow] = useState(null);
   const [openingWorkflowId, setOpeningWorkflowId] = useState(null);
 
   // ── Auth Guard & Initial load ──────────────────────────────────────────
@@ -223,158 +225,174 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
           </div>
         )}
 
-        {/* Top-right actions */}
-        <div className="absolute top-3 right-3 z-20 flex gap-1.5">
-          {/* Access badge */}
-          {badge && (
-            <span className={`px-2 py-1 rounded-lg border text-[9px] font-bold uppercase tracking-widest ${badge.bg} ${badge.color}`}>
-              {t(badge.labelKey, {}, badge.fallback)}
-            </span>
-          )}
+        {/* Top Header: Left status icon / Author & Right access badge + actions */}
+        <div className="absolute top-3 inset-x-3 z-20 flex items-start justify-between gap-1.5 pointer-events-none">
+          {/* Left: Visibility icon (or Author on public) */}
+          <div className="pointer-events-auto flex items-center gap-1.5 min-w-0">
+            {!isPublic && isOwner && (
+              work.visibility === "public" ? (
+                <span
+                  title={t("listing.publicBadge", {}, "Публичный")}
+                  className="flex items-center justify-center w-7 h-7 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 shadow-lg backdrop-blur-md shrink-0"
+                >
+                  <HiOutlineGlobeAlt size={13} />
+                </span>
+              ) : (
+                <span
+                  title={t("listing.privateBadge", {}, "Приватный")}
+                  className="flex items-center justify-center w-7 h-7 rounded-lg bg-black/50 border border-white/10 text-zinc-400 shadow-lg backdrop-blur-md shrink-0"
+                >
+                  <HiOutlineLockClosed size={13} />
+                </span>
+              )
+            )}
 
-          {/* Public: copy button */}
-          {isPublic && isAuthenticated && (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleCopyPublic(work);
-              }}
-              className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-zinc-400 hover:text-white transition-all hover:scale-110 shadow-lg cursor-pointer"
-              title={t("listing.createCopy", {}, "Создать копию")}
-            >
-              <FaCopy size={13} />
-            </button>
-          )}
+            {isPublic && work.owner_name && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md border border-white/10 shadow-lg min-w-0">
+                {work.owner_avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={work.owner_avatar} alt="" className="w-4 h-4 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white text-[8px] font-black shrink-0">
+                    {work.owner_name[0]?.toUpperCase()}
+                  </div>
+                )}
+                <span className="text-zinc-300 text-[10px] font-semibold truncate max-w-[80px]">{work.owner_name}</span>
+              </div>
+            )}
+          </div>
 
-          {/* My: options menu */}
-          {!isPublic && (
-            <div className="relative">
+          {/* Right: Access badge and Action buttons */}
+          <div className="pointer-events-auto flex items-center gap-1.5 shrink-0">
+            {/* Access badge */}
+            {badge && (
+              <span className={`px-2 py-1 rounded-lg border text-[9px] font-bold uppercase tracking-widest backdrop-blur-md shadow-lg ${badge.bg} ${badge.color}`}>
+                {t(badge.labelKey, {}, badge.fallback)}
+              </span>
+            )}
+
+            {/* Public: copy button */}
+            {isPublic && isAuthenticated && (
               <button
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  const key = remoteId + "_my";
-                  setDropDown(dropDown === key ? 0 : key);
+                  handleCopyPublic(work);
                 }}
-                className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-zinc-400 hover:text-white transition-all hover:scale-110 shadow-lg cursor-pointer"
+                className="p-1.5 rounded-lg bg-black/50 backdrop-blur-md border border-white/10 text-zinc-400 hover:text-white transition-all hover:scale-110 shadow-lg cursor-pointer"
+                title={t("listing.createCopy", {}, "Создать копию")}
               >
-                <SlOptions size={14} />
+                <FaCopy size={12} />
               </button>
-              {dropDown === remoteId + "_my" && (
-                <div
-                  className="absolute right-0 mt-2 w-44 py-1 bg-[#111] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-30"
-                  onMouseLeave={() => setDropDown(0)}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {isOwner && (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setRenameId(remoteId);
-                          setWorkflowName(work.name || "");
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
-                      >
-                        <FaRegEdit size={13} /> {t("listing.rename", {}, "Переименовать")}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setCoverWorkflow(work);
-                          setDropDown(0);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
-                      >
-                        <HiOutlinePhoto size={13} /> {t("listing.coverImage", {}, "Обложка")}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setSettingsWorkflow(work);
-                          setDropDown(0);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
-                      >
-                        <HiOutlineCog6Tooth size={13} /> {t("listing.settingsModal.title", {}, "Настройки")}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setShareWorkflow(work);
-                          setDropDown(0);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
-                      >
-                        <HiOutlineUserGroup size={13} /> {t("listing.share", {}, "Поделиться")}
-                      </button>
-                      <hr className="border-white/5 my-1" />
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleDeleteWorkflow(work);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                      >
-                        <FiTrash2 size={13} /> {t("listing.delete", {}, "Удалить")}
-                      </button>
-                    </>
-                  )}
-                  {!isOwner && (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleCopyPublic(work);
-                          setDropDown(0);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/10 transition-colors cursor-pointer font-medium"
-                      >
-                        <FaCopy size={13} /> {t("listing.createCopy", {}, "Создать копию")}
-                      </button>
-                      <div className="px-4 py-1.5 text-[10px] uppercase font-bold tracking-wider text-zinc-500 border-t border-white/5">
-                        {work.access_level === "full_access" ? t("listing.accessFull", {}, "Полный доступ") : t("listing.accessView", {}, "Только просмотр")}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+            )}
 
-        {/* Visibility badge for own workflows */}
-        {!isPublic && isOwner && (
-          <div className="absolute top-3 left-3 z-20">
-            {work.visibility === "public" ? (
-              <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-[9px] font-bold uppercase tracking-widest">
-                <HiOutlineGlobeAlt size={10} /> {t("listing.publicBadge", {}, "Публичный")}
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-zinc-500 text-[9px] font-bold uppercase tracking-widest">
-                <HiOutlineLockClosed size={10} /> {t("listing.privateBadge", {}, "Приватный")}
-              </span>
+            {/* My: options menu */}
+            {!isPublic && (
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const key = remoteId + "_my";
+                    setDropDown(dropDown === key ? 0 : key);
+                  }}
+                  className="p-1.5 rounded-lg bg-black/50 backdrop-blur-md border border-white/10 text-zinc-400 hover:text-white transition-all hover:scale-110 shadow-lg cursor-pointer"
+                >
+                  <SlOptions size={12} />
+                </button>
+                {dropDown === remoteId + "_my" && (
+                  <div
+                    className="absolute right-0 mt-2 w-44 py-1 bg-[#111] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-30"
+                    onMouseLeave={() => setDropDown(0)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {isOwner && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setRenameId(remoteId);
+                            setWorkflowName(work.name || "");
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                        >
+                          <FaRegEdit size={13} /> {t("listing.rename", {}, "Переименовать")}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setCoverWorkflow(work);
+                            setDropDown(0);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                        >
+                          <HiOutlinePhoto size={13} /> {t("listing.coverImage", {}, "Обложка")}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setSettingsWorkflow(work);
+                            setDropDown(0);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                        >
+                          <HiOutlineCog6Tooth size={13} /> {t("listing.settingsModal.title", {}, "Настройки")}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setShareWorkflow(work);
+                            setDropDown(0);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                        >
+                          <HiOutlineUserGroup size={13} /> {t("listing.share", {}, "Поделиться")}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setHistoryWorkflow(work);
+                            setDropDown(0);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                        >
+                          <HiOutlineClock size={13} /> {t("listing.runHistory", {}, "История запусков")}
+                        </button>
+                        <hr className="border-white/5 my-1" />
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleDeleteWorkflow(work);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                        >
+                          <FiTrash2 size={13} /> {t("listing.delete", {}, "Удалить")}
+                        </button>
+                      </>
+                    )}
+                    {!isOwner && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleCopyPublic(work);
+                            setDropDown(0);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/10 transition-colors cursor-pointer font-medium"
+                        >
+                          <FaCopy size={13} /> {t("listing.createCopy", {}, "Создать копию")}
+                        </button>
+                        <div className="px-4 py-1.5 text-[10px] uppercase font-bold tracking-wider text-zinc-500 border-t border-white/5">
+                          {work.access_level === "full_access" ? t("listing.accessFull", {}, "Полный доступ") : t("listing.accessView", {}, "Только просмотр")}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        )}
-
-        {/* Public author badge */}
-        {isPublic && work.owner_name && (
-          <div className="absolute top-3 left-3 z-20">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-md border border-white/10">
-              {work.owner_avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={work.owner_avatar} alt="" className="w-4 h-4 rounded-full object-cover" />
-              ) : (
-                <div className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white text-[8px] font-black">
-                  {work.owner_name[0]?.toUpperCase()}
-                </div>
-              )}
-              <span className="text-zinc-300 text-[10px] font-semibold truncate max-w-[80px]">{work.owner_name}</span>
-            </div>
-          </div>
-        )}
+        </div>
 
         {/* Bottom info */}
         <div className="absolute bottom-0 left-0 w-full p-4 pt-10 bg-gradient-to-t from-[#030303] to-transparent flex flex-col gap-1 pointer-events-none">
@@ -744,6 +762,14 @@ const WorkflowListingClient = ({ initialWorkflowList }) => {
               )
             );
           }}
+        />
+      )}
+
+      {/* Run history modal */}
+      {historyWorkflow && (
+        <RunHistoryModal
+          workflow={historyWorkflow}
+          onClose={() => setHistoryWorkflow(null)}
         />
       )}
     </div>

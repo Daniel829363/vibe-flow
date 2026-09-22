@@ -99,6 +99,8 @@ export default function ProfilePage() {
     }
   };
 
+  const hasPassword = user?.has_password ?? !user?.google_id;
+
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     if (newPwd !== confirmPwd) {
@@ -111,11 +113,20 @@ export default function ProfilePage() {
     }
     setPwdLoading(true);
     try {
-      await axios.put("/api/profile/password", { old_password: oldPwd, new_password: newPwd });
+      const payload = { new_password: newPwd };
+      if (hasPassword) {
+        payload.old_password = oldPwd;
+      }
+      const res = await axios.put("/api/profile/password", payload);
+      if (res.data?.user) {
+        updateUser(res.data.user);
+      } else {
+        updateUser({ ...user, has_password: true });
+      }
       setOldPwd(""); setNewPwd(""); setConfirmPwd("");
-      toast.success(t("profile.passwordChanged", {}, "Пароль изменён"));
+      toast.success(hasPassword ? t("profile.passwordChanged", {}, "Пароль изменён") : t("profile.passwordSet", {}, "Пароль успешно установлен"));
     } catch (err) {
-      toast.error(err.response?.data?.detail || t("common.error", {}, "Ошибка смены пароля"));
+      toast.error(err.response?.data?.detail || t("common.error", {}, "Ошибка сохранения пароля"));
     } finally {
       setPwdLoading(false);
     }
@@ -318,10 +329,18 @@ export default function ProfilePage() {
             </form>
           </Section>
 
-          {/* Change Password */}
-          <Section icon={<HiOutlineLockClosed size={16} />} title={t("profile.changePassword", {}, "Изменить пароль")}>
-            {!user?.google_id || user?.hashed_password ? (
-              <form onSubmit={handlePasswordChange} className="space-y-4">
+          {/* Change or Set Password */}
+          <Section
+            icon={<HiOutlineLockClosed size={16} />}
+            title={hasPassword ? t("profile.changePassword", {}, "Изменить пароль") : t("profile.setPassword", {}, "Установить пароль")}
+          >
+            {!hasPassword && (
+              <p className="text-zinc-400 text-xs mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl leading-relaxed">
+                {t("profile.googleAccountNote", {}, "Ваш аккаунт создан через Google. Установите пароль, чтобы использовать вход по email.")}
+              </p>
+            )}
+            <form onSubmit={handlePasswordChange} className="space-y-4">
+              {hasPassword && (
                 <Field label={t("profile.currentPassword", {}, "Текущий пароль")}>
                   <div className="relative">
                     <Input
@@ -331,12 +350,18 @@ export default function ProfilePage() {
                       placeholder={t("profile.currentPassword", {}, "Текущий пароль")}
                       required
                     />
-                    <button type="button" onClick={() => setShowPwd(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => setShowPwd((p) => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+                    >
                       {showPwd ? <HiOutlineEyeSlash size={16} /> : <HiOutlineEye size={16} />}
                     </button>
                   </div>
                 </Field>
-                <Field label={t("profile.newPassword", {}, "Новый пароль")}>
+              )}
+              <Field label={hasPassword ? t("profile.newPassword", {}, "Новый пароль") : t("profile.newPassword", {}, "Пароль")}>
+                <div className="relative">
                   <Input
                     type={showPwd ? "text" : "password"}
                     value={newPwd}
@@ -344,31 +369,40 @@ export default function ProfilePage() {
                     placeholder={t("auth.passwordMinLength", {}, "Минимум 8 символов")}
                     required
                   />
-                </Field>
-                <Field label={t("profile.confirmNewPassword", {}, "Подтвердить новый пароль")}>
-                  <Input
-                    type={showPwd ? "text" : "password"}
-                    value={confirmPwd}
-                    onChange={(e) => setConfirmPwd(e.target.value)}
-                    placeholder={t("auth.confirmPasswordPlaceholder", {}, "Повторите пароль")}
-                    required
-                  />
-                </Field>
-                <div className="flex justify-end pt-2">
-                  <button
-                    type="submit"
-                    disabled={pwdLoading}
-                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all"
-                  >
-                    {pwdLoading ? t("profile.saving", {}, "Сохранение...") : t("profile.changePasswordBtn", {}, "Изменить пароль")}
-                  </button>
+                  {!hasPassword && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPwd((p) => !p)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+                    >
+                      {showPwd ? <HiOutlineEyeSlash size={16} /> : <HiOutlineEye size={16} />}
+                    </button>
+                  )}
                 </div>
-              </form>
-            ) : (
-              <p className="text-zinc-500 text-sm">
-                {t("profile.googleAccountNote", {}, "Ваш аккаунт создан через Google. Установите пароль, чтобы использовать вход по email.")}
-              </p>
-            )}
+              </Field>
+              <Field label={hasPassword ? t("profile.confirmNewPassword", {}, "Подтвердить новый пароль") : t("profile.confirmNewPassword", {}, "Подтвердить пароль")}>
+                <Input
+                  type={showPwd ? "text" : "password"}
+                  value={confirmPwd}
+                  onChange={(e) => setConfirmPwd(e.target.value)}
+                  placeholder={t("auth.confirmPasswordPlaceholder", {}, "Повторите пароль")}
+                  required
+                />
+              </Field>
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={pwdLoading}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer shadow-lg shadow-blue-600/20"
+                >
+                  {pwdLoading
+                    ? t("profile.saving", {}, "Сохранение...")
+                    : hasPassword
+                    ? t("profile.changePasswordBtn", {}, "Изменить пароль")
+                    : t("profile.setPasswordBtn", {}, "Установить пароль")}
+                </button>
+              </div>
+            </form>
           </Section>
         </div>
       </div>

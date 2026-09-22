@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { HiOutlineXMark, HiOutlineUserPlus, HiOutlineTrash } from "react-icons/hi2";
+import { HiOutlineXMark, HiOutlineUserPlus, HiOutlineTrash, HiOutlineCircleStack } from "react-icons/hi2";
 import { toast } from "react-hot-toast";
 import axios from "axios";
 import { useTranslation } from "workflow-builder";
@@ -16,34 +16,59 @@ export default function ShareModal({ workflow, onClose }) {
   const [shares, setShares]           = useState([]);
   const [email, setEmail]             = useState("");
   const [accessLevel, setAccessLevel] = useState("view_only");
+  const [tokenSource, setTokenSource] = useState("runner");
   const [loading, setLoading]         = useState(true);
   const [adding, setAdding]           = useState(false);
 
   const remoteId = workflow?.remote_workflow_id || workflow?.id;
 
-  useEffect(() => {
+  const loadShares = async () => {
     if (!remoteId) return;
-    axios.get(`/api/workflows/${remoteId}/shares`)
-      .then((res) => setShares(res.data))
-      .catch(() => toast.error(t("listing.shareModal.fetchSharesFailed", {}, "Не удалось загрузить список доступа")))
-      .finally(() => setLoading(false));
-  }, [remoteId, t]);
+    try {
+      const res = await axios.get(`/api/workflows/${remoteId}/shares`);
+      setShares(res.data || []);
+    } catch {
+      toast.error(t("listing.shareModal.fetchSharesFailed", {}, "Не удалось загрузить список доступа"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadShares();
+  }, [remoteId]);
 
   const handleAddShare = async (e) => {
     e.preventDefault();
     if (!email) return;
     setAdding(true);
     try {
-      await axios.post(`/api/workflows/${remoteId}/share`, { email, access_level: accessLevel });
+      await axios.post(`/api/workflows/${remoteId}/share`, {
+        email,
+        access_level: accessLevel,
+        token_source: accessLevel === "full_access" ? tokenSource : "runner",
+      });
       toast.success(t("listing.shareModal.accessGranted", { email }, `Доступ выдан: ${email}`));
-      // Reload list
-      const res = await axios.get(`/api/workflows/${remoteId}/shares`);
-      setShares(res.data);
+      await loadShares();
       setEmail("");
     } catch (err) {
       toast.error(err.response?.data?.detail || t("listing.shareModal.userNotFound", {}, "Пользователь не найден"));
     } finally {
       setAdding(false);
+    }
+  };
+
+  const handleUpdateTokenSource = async (share, newSource) => {
+    try {
+      await axios.post(`/api/workflows/${remoteId}/share`, {
+        email: share.user_email,
+        access_level: share.access_level,
+        token_source: newSource,
+      });
+      toast.success(t("listing.shareModal.tokenSourceUpdated", {}, "Источник токенов обновлён"));
+      await loadShares();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Ошибка при обновлении источника токенов");
     }
   };
 
@@ -84,7 +109,7 @@ export default function ShareModal({ workflow, onClose }) {
             <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
               {t("listing.shareModal.addUserLabel", {}, "Добавить пользователя по email")}
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="email"
                 value={email}
@@ -104,11 +129,48 @@ export default function ShareModal({ workflow, onClose }) {
               <button
                 type="submit"
                 disabled={adding}
-                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-all"
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <HiOutlineUserPlus size={18} />
+                <span className="sm:hidden text-xs">Добавить</span>
               </button>
             </div>
+
+            {/* Token source selection for full_access */}
+            {accessLevel === "full_access" && (
+              <div className="p-3 bg-white/[0.02] border border-blue-500/20 rounded-xl flex flex-col gap-2 animate-in fade-in duration-150">
+                <div className="flex items-center gap-1.5 text-xs text-blue-400 font-semibold">
+                  <HiOutlineCircleStack size={15} />
+                  <span>Источник списания токенов при запуске:</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setTokenSource("runner")}
+                    className={`py-2 px-3 rounded-lg border text-left transition-all cursor-pointer ${
+                      tokenSource === "runner"
+                        ? "bg-blue-500/20 border-blue-500/40 text-blue-300 font-semibold"
+                        : "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <div>Запускающий</div>
+                    <div className="text-[10px] text-zinc-500 font-normal mt-0.5">Тратит свои личные токены</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTokenSource("owner")}
+                    className={`py-2 px-3 rounded-lg border text-left transition-all cursor-pointer ${
+                      tokenSource === "owner"
+                        ? "bg-amber-500/20 border-amber-500/40 text-amber-300 font-semibold"
+                        : "bg-white/5 border-white/10 text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <div>Владелец (Вы)</div>
+                    <div className="text-[10px] text-zinc-500 font-normal mt-0.5">Оплачивается с вашего баланса</div>
+                  </button>
+                </div>
+              </div>
+            )}
           </form>
 
           {/* Shares list */}
@@ -127,10 +189,11 @@ export default function ShareModal({ workflow, onClose }) {
               <div className="space-y-2">
                 {shares.map((share) => {
                   const meta = ACCESS_CONFIG[share.access_level] || ACCESS_CONFIG.view_only;
+                  const isFull = share.access_level === "full_access";
                   return (
                     <div
                       key={share.id}
-                      className="flex items-center gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-xl"
+                      className="flex items-center gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-xl flex-wrap sm:flex-nowrap"
                     >
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600/50 to-purple-600/50 flex items-center justify-center text-white font-black text-xs flex-shrink-0">
                         {(share.user_name || share.user_email)?.[0]?.toUpperCase()}
@@ -143,15 +206,32 @@ export default function ShareModal({ workflow, onClose }) {
                           <p className="text-zinc-500 text-xs truncate">{share.user_email}</p>
                         )}
                       </div>
-                      <span className={`px-2 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-widest ${meta.bg} ${meta.color}`}>
-                        {t(meta.key, {}, meta.fallback)}
-                      </span>
-                      <button
-                        onClick={() => handleRevoke(share.user_id, share.user_email)}
-                        className="p-1.5 text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0"
-                      >
-                        <HiOutlineTrash size={15} />
-                      </button>
+
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`px-2 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-widest ${meta.bg} ${meta.color}`}>
+                          {t(meta.key, {}, meta.fallback)}
+                        </span>
+
+                        {isFull && (
+                          <select
+                            value={share.token_source || "runner"}
+                            onChange={(e) => handleUpdateTokenSource(share, e.target.value)}
+                            title="Чьи токены списывать при запуске"
+                            className="bg-white/5 border border-white/10 hover:border-amber-500/30 text-amber-300 text-[10px] font-semibold rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
+                          >
+                            <option value="runner" className="bg-zinc-900 text-zinc-300">Токены: запускающий</option>
+                            <option value="owner" className="bg-zinc-900 text-amber-300">Токены: владелец</option>
+                          </select>
+                        )}
+
+                        <button
+                          onClick={() => handleRevoke(share.user_id, share.user_email)}
+                          className="p-1.5 text-zinc-600 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer"
+                          title="Отозвать доступ"
+                        >
+                          <HiOutlineTrash size={15} />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}

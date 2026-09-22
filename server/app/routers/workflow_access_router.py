@@ -1,12 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func, desc
 from pydantic import BaseModel
 from typing import Optional
 from pathlib import Path
 import uuid
 import shutil
 import re
+import math
 from datetime import datetime, timezone
 
 import logging
@@ -14,7 +15,8 @@ import logging
 from app.database import get_db
 from app.models.user import User
 from app.models.workflow_meta import WorkflowMeta, VisibilityEnum
-from app.models.workflow_share import WorkflowShare, AccessLevelEnum
+from app.models.workflow_share import WorkflowShare, AccessLevelEnum, TokenSourceEnum
+from app.models.workflow_run_log import WorkflowRunLog
 from app.auth.security import get_current_user
 from app.utils.workflow_helper import create_or_update_workflow, get_workflow_def_helper
 
@@ -36,6 +38,7 @@ class SetThumbnailRequest(BaseModel):
 class ShareRequest(BaseModel):
     email: str
     access_level: str  # "full_access" | "view_only"
+    token_source: Optional[str] = "runner"  # "runner" | "owner"
 
 
 # ─────────────────────────────────────────────
@@ -285,9 +288,8 @@ async def get_shares(
             "user_email": user.email,
             "user_name": user.name,
             "user_avatar": user.avatar_url,
-            "access_level": share.access_level.value
-            if isinstance(share.access_level, AccessLevelEnum)
-            else share.access_level,
+            "access_level": str(share.access_level or "view_only").lower(),
+            "token_source": str(share.token_source or "runner").lower(),
             "created_at": share.created_at.isoformat() if share.created_at else None,
         }
         for share, user in rows
@@ -319,6 +321,9 @@ async def share_workflow(
     if payload.access_level not in ("full_access", "view_only"):
         raise HTTPException(status_code=400, detail="access_level must be 'full_access' or 'view_only'")
 
+    access_level_val = "full_access" if payload.access_level == "full_access" else "view_only"
+    token_source_val = "owner" if payload.token_source == "owner" else "runner"
+
     # Check if already shared
     existing_share = await db.execute(
         select(WorkflowShare).where(
@@ -329,19 +334,15 @@ async def share_workflow(
     share = existing_share.scalar_one_or_none()
 
     if share:
-        # Update access level
-        share.access_level = (
-            AccessLevelEnum.FULL_ACCESS
-            if payload.access_level == "full_access"
-            else AccessLevelEnum.VIEW_ONLY
-        )
+        # Update access level and token source
+        share.access_level = access_level_val
+        share.token_source = token_source_val
     else:
         share = WorkflowShare(
             workflow_meta_id=wf.id,
             shared_with_user_id=target_user.id,
-            access_level=AccessLevelEnum.FULL_ACCESS
-            if payload.access_level == "full_access"
-            else AccessLevelEnum.VIEW_ONLY,
+            access_level=access_level_val,
+            token_source=token_source_val,
         )
         db.add(share)
 
@@ -349,7 +350,8 @@ async def share_workflow(
 
     return {
         "message": f"Workflow shared with {target_user.email}",
-        "access_level": payload.access_level,
+        "access_level": access_level_val,
+        "token_source": token_source_val,
     }
 
 
@@ -484,3 +486,67 @@ async def _get_owned_workflow(remote_id: str, owner_id: str, db: AsyncSession) -
         raise HTTPException(status_code=403, detail="You don't have permission to manage this workflow")
 
     return wf
+
+
+# ─────────────────────────────────────────────
+#  GET /api/workflows/{remote_id}/run-history
+#  История запусков workflow
+# ─────────────────────────────────────────────
+@router.get("/{remote_id}/run-history")
+async def get_run_history(
+    remote_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    runner_id: Optional[str] = Query(None, description="Filter by runner user ID"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get run history for a workflow. Available to owner and superadmin."""
+    # Find the workflow
+    wf_result = await db.execute(
+        select(WorkflowMeta).where(
+            or_(
+                WorkflowMeta.remote_workflow_id == remote_id,
+                WorkflowMeta.id == remote_id,
+            )
+        )
+    )
+    wf = wf_result.scalar_one_or_none()
+
+    if not wf:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    if not current_user.is_superadmin and wf.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="История запусков доступна только владельцу процесса")
+
+    # Build query
+    conditions = [WorkflowRunLog.workflow_id == remote_id]
+    if runner_id:
+        conditions.append(WorkflowRunLog.runner_id == runner_id)
+
+    # Count
+    count_res = await db.execute(
+        select(func.count()).select_from(WorkflowRunLog).where(*conditions)
+    )
+    total = count_res.scalar_one()
+
+    # Fetch paginated
+    offset = (page - 1) * limit
+    logs_res = await db.execute(
+        select(WorkflowRunLog)
+        .where(*conditions)
+        .order_by(desc(WorkflowRunLog.created_at))
+        .offset(offset)
+        .limit(limit)
+    )
+    logs = logs_res.scalars().all()
+
+    total_pages = math.ceil(total / limit) if limit > 0 else 1
+
+    return {
+        "items": [log.to_dict() for log in logs],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": total_pages,
+    }

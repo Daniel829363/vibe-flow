@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func, desc
 from datetime import datetime, timezone
 import logging
 from typing import Optional
@@ -11,9 +11,11 @@ from typing import Optional
 from app.database import get_db
 from app.models.user import User
 from app.models.workflow_meta import WorkflowMeta, VisibilityEnum
-from app.models.workflow_share import WorkflowShare, AccessLevelEnum
+from app.models.workflow_share import WorkflowShare, AccessLevelEnum, TokenSourceEnum
 from app.models.token_transaction import TokenTransaction, TransactionTypeEnum
 from app.models.media_file import MediaFile
+from app.models.workflow_run_log import WorkflowRunLog, RunTypeEnum
+from app.models.workflow_run_log import TokenSourceEnum as LogTokenSourceEnum
 from app.auth.security import get_current_user_optional
 
 from app.utils.workflow_helper import (
@@ -64,6 +66,7 @@ async def _get_workflow_access(workflow_id: str, current_user: Optional[User], d
             "is_published": False,
             "can_edit": True if current_user else False,
             "can_run": True if current_user else False,
+            "share": None,
         }
 
     is_published = wf_meta.visibility == VisibilityEnum.PUBLIC
@@ -76,6 +79,7 @@ async def _get_workflow_access(workflow_id: str, current_user: Optional[User], d
             "is_published": is_published,
             "can_edit": True,
             "can_run": True,
+            "share": None,
         }
 
     share = None
@@ -89,7 +93,7 @@ async def _get_workflow_access(workflow_id: str, current_user: Optional[User], d
         share = share_res.scalar_one_or_none()
 
     if share:
-        if share.access_level == AccessLevelEnum.FULL_ACCESS:
+        if str(share.access_level).lower() == "full_access":
             return {
                 "wf_meta": wf_meta,
                 "is_owner": True,
@@ -97,6 +101,7 @@ async def _get_workflow_access(workflow_id: str, current_user: Optional[User], d
                 "is_published": is_published,
                 "can_edit": True,
                 "can_run": True,
+                "share": share,
             }
         else:
             return {
@@ -106,6 +111,7 @@ async def _get_workflow_access(workflow_id: str, current_user: Optional[User], d
                 "is_published": is_published,
                 "can_edit": False,
                 "can_run": False,
+                "share": share,
             }
 
     if is_published:
@@ -116,6 +122,7 @@ async def _get_workflow_access(workflow_id: str, current_user: Optional[User], d
             "is_published": True,
             "can_edit": False,
             "can_run": False,
+            "share": None,
         }
 
     return {
@@ -125,7 +132,37 @@ async def _get_workflow_access(workflow_id: str, current_user: Optional[User], d
         "is_published": False,
         "can_edit": False,
         "can_run": False,
+        "share": None,
     }
+
+
+async def _cleanup_old_run_logs(workflow_id: str, db: AsyncSession):
+    """Remove oldest run logs exceeding the configured limit per workflow."""
+    limit = int(os.getenv("WORKFLOW_RUN_LOG_LIMIT", "100"))
+    if limit <= 0:
+        return
+
+    count_res = await db.execute(
+        select(func.count()).select_from(WorkflowRunLog).where(
+            WorkflowRunLog.workflow_id == workflow_id
+        )
+    )
+    total = count_res.scalar_one()
+
+    if total > limit:
+        excess = total - limit
+        oldest_res = await db.execute(
+            select(WorkflowRunLog.id)
+            .where(WorkflowRunLog.workflow_id == workflow_id)
+            .order_by(WorkflowRunLog.created_at.asc())
+            .limit(excess)
+        )
+        old_ids = [row[0] for row in oldest_res.all()]
+        if old_ids:
+            from sqlalchemy import delete as sa_delete
+            await db.execute(
+                sa_delete(WorkflowRunLog).where(WorkflowRunLog.id.in_(old_ids))
+            )
 
 
 @router.post("/create")
@@ -349,45 +386,107 @@ async def run_workflow(
         cost_usd = float(payload.get("cost") or 0.0)
         required_tokens = round(cost_usd * rate, 4)
 
-        # Token balance check if user is authenticated
+        # Determine token source and charged user
+        share = access.get("share")
+        wf_meta = access.get("wf_meta")
+        is_shared_run = access["access_level"] == "full_access" and share is not None
+        token_source_value = "runner"
+        charged_user_id = current_user.id if current_user else None
+
+        if is_shared_run and share:
+            ts = share.token_source
+            token_source_value = ts.value if isinstance(ts, TokenSourceEnum) else str(ts or "runner").lower()
+
+        # Token balance check
         db_user = None
+        db_charged_user = None
         if current_user:
             user_res = await db.execute(select(User).where(User.id == current_user.id))
             db_user = user_res.scalar_one_or_none()
-            if db_user:
-                if cost_usd > 0 and (db_user.token_balance < required_tokens or db_user.token_balance <= 0):
+
+            if is_shared_run and token_source_value == "owner" and wf_meta:
+                owner_res = await db.execute(select(User).where(User.id == wf_meta.owner_id))
+                db_charged_user = owner_res.scalar_one_or_none()
+                charged_user_id = wf_meta.owner_id
+            else:
+                db_charged_user = db_user
+                charged_user_id = current_user.id
+
+            if db_charged_user and cost_usd > 0:
+                if db_charged_user.token_balance < required_tokens or db_charged_user.token_balance <= 0:
+                    who = "владельца процесса" if token_source_value == "owner" else "вашем"
                     raise HTTPException(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                        detail=f"Недостаточно токенов для запуска процесса. Требуется: {required_tokens:g} токенов (${cost_usd:.3f}), ваш баланс: {db_user.token_balance:g} токенов. Пожалуйста, пополните баланс.",
+                        detail=f"Недостаточно токенов на балансе {who} для запуска процесса. Требуется: {required_tokens:g} токенов (${cost_usd:.3f}), баланс: {db_charged_user.token_balance:g} токенов.",
                     )
 
         result = await run_workflow_helper(workflow_id, payload)
 
+        # Collect model chain from payload nodes
+        model_chain = []
+        nodes_data = payload.get("nodes") or (payload.get("data") or {}).get("nodes") or []
+        if isinstance(nodes_data, list):
+            for node in nodes_data:
+                if isinstance(node, dict):
+                    node_data = node.get("data") or {}
+                    model_name = node_data.get("model") or node_data.get("task_name") or node.get("type")
+                    if model_name:
+                        model_chain.append({
+                            "node_id": node.get("id"),
+                            "model": str(model_name),
+                            "label": (node_data.get("label") or node.get("id") or ""),
+                        })
+
         # Deduct tokens if run was initiated successfully
-        if db_user and cost_usd > 0:
-            db_user.token_balance = max(0.0, db_user.token_balance - required_tokens)
-            
-            wf_stmt = select(WorkflowMeta).where(
-                or_(
-                    WorkflowMeta.remote_workflow_id == workflow_id,
-                    WorkflowMeta.id == workflow_id,
-                )
-            )
-            wf_res = await db.execute(wf_stmt)
-            wf_meta = wf_res.scalar_one_or_none()
+        if db_charged_user and cost_usd > 0:
+            db_charged_user.token_balance = max(0.0, db_charged_user.token_balance - required_tokens)
+
             wf_name = wf_meta.name if wf_meta else None
 
+            description_prefix = ""
+            if is_shared_run and token_source_value == "owner":
+                runner_name = db_user.name or db_user.email if db_user else "unknown"
+                description_prefix = f"[Shared запуск от {runner_name}] "
+
             tx = TokenTransaction(
-                user_id=db_user.id,
+                user_id=charged_user_id,
                 amount_tokens=-required_tokens,
                 amount_usd=-cost_usd,
                 type=TransactionTypeEnum.USAGE,
-                description=f"Запуск процесса: {wf_name or workflow_id}",
+                description=f"{description_prefix}Запуск процесса: {wf_name or workflow_id}",
                 workflow_id=workflow_id,
                 workflow_name=wf_name,
             )
             db.add(tx)
+
+        # Create run log entry
+        if current_user:
+            wf_name = wf_meta.name if wf_meta else None
+            owner_id = wf_meta.owner_id if wf_meta else current_user.id
+            run_log = WorkflowRunLog(
+                workflow_id=workflow_id,
+                workflow_name=wf_name,
+                run_id=result.get("run_id") if isinstance(result, dict) else None,
+                run_type="workflow",
+                runner_id=current_user.id,
+                owner_id=owner_id,
+                is_shared_run=is_shared_run,
+                token_source=token_source_value,
+                charged_user_id=charged_user_id or current_user.id,
+                model_chain=json.dumps(model_chain, ensure_ascii=False) if model_chain else None,
+                tokens_total=required_tokens,
+                cost_usd_total=cost_usd,
+            )
+            db.add(run_log)
+
             await db.commit()
+
+            # Cleanup old logs
+            try:
+                await _cleanup_old_run_logs(workflow_id, db)
+                await db.commit()
+            except Exception as cleanup_err:
+                logger.warning(f"Run log cleanup note: {cleanup_err}")
 
         return result
     except HTTPException as e:
@@ -553,6 +652,7 @@ async def get_run_status(
         if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.post("/{workflow_id}/node/{node_id}/run")
 async def run_node(
     workflow_id: str,
@@ -592,47 +692,107 @@ async def run_node(
 
         required_tokens = round(cost_usd * rate, 4)
 
-        # Token balance check if user is authenticated
+        # Determine token source and charged user
+        share = access.get("share")
+        wf_meta = access.get("wf_meta")
+        is_shared_run = access["access_level"] == "full_access" and share is not None
+        token_source_value = "runner"
+        charged_user_id = current_user.id if current_user else None
+
+        if is_shared_run and share:
+            ts = share.token_source
+            token_source_value = ts.value if isinstance(ts, TokenSourceEnum) else str(ts or "runner").lower()
+
+        # Token balance check
         db_user = None
+        db_charged_user = None
         if current_user:
             user_res = await db.execute(select(User).where(User.id == current_user.id))
             db_user = user_res.scalar_one_or_none()
-            if db_user:
-                if cost_usd > 0 and (db_user.token_balance < required_tokens or db_user.token_balance <= 0):
+
+            if is_shared_run and token_source_value == "owner" and wf_meta:
+                owner_res = await db.execute(select(User).where(User.id == wf_meta.owner_id))
+                db_charged_user = owner_res.scalar_one_or_none()
+                charged_user_id = wf_meta.owner_id
+            else:
+                db_charged_user = db_user
+                charged_user_id = current_user.id
+
+            if db_charged_user and cost_usd > 0:
+                if db_charged_user.token_balance < required_tokens or db_charged_user.token_balance <= 0:
+                    who = "владельца процесса" if token_source_value == "owner" else "вашем"
                     raise HTTPException(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                        detail=f"Недостаточно токенов для запуска ноды. Требуется: {required_tokens:g} токенов (${cost_usd:.3f}), ваш баланс: {db_user.token_balance:g} токенов. Пожалуйста, пополните баланс.",
+                        detail=f"Недостаточно токенов на балансе {who} для запуска ноды. Требуется: {required_tokens:g} токенов (${cost_usd:.3f}), баланс: {db_charged_user.token_balance:g} токенов.",
                     )
 
         result = await run_node_helper(workflow_id, node_id, payload)
 
         # Deduct tokens if run was initiated successfully
-        if db_user and cost_usd > 0:
-            db_user.token_balance = max(0.0, db_user.token_balance - required_tokens)
+        if db_charged_user and cost_usd > 0:
+            db_charged_user.token_balance = max(0.0, db_charged_user.token_balance - required_tokens)
 
-            wf_stmt = select(WorkflowMeta).where(
-                or_(
-                    WorkflowMeta.remote_workflow_id == workflow_id,
-                    WorkflowMeta.id == workflow_id,
-                )
-            )
-            wf_res = await db.execute(wf_stmt)
-            wf_meta = wf_res.scalar_one_or_none()
             wf_name = wf_meta.name if wf_meta else None
-
             node_label = payload.get("node_id") or payload.get("model") or "Нода"
 
+            description_prefix = ""
+            if is_shared_run and token_source_value == "owner":
+                runner_name = db_user.name or db_user.email if db_user else "unknown"
+                description_prefix = f"[Shared запуск от {runner_name}] "
+
             tx = TokenTransaction(
-                user_id=db_user.id,
+                user_id=charged_user_id,
                 amount_tokens=-required_tokens,
                 amount_usd=-cost_usd,
                 type=TransactionTypeEnum.USAGE,
-                description=f"Генерация ({node_label}) в процессе {wf_name or workflow_id}",
+                description=f"{description_prefix}Генерация ({node_label}) в процессе {wf_name or workflow_id}",
                 workflow_id=workflow_id,
                 workflow_name=wf_name,
             )
             db.add(tx)
+
+        # Create run log entry
+        if current_user:
+            wf_name = wf_meta.name if wf_meta else None
+            owner_id = wf_meta.owner_id if wf_meta else current_user.id
+            node_label = payload.get("node_id") or payload.get("model") or "Нода"
+
+            model_chain = []
+            if model:
+                model_chain.append({
+                    "node_id": node_id,
+                    "model": str(model),
+                    "label": str(node_label),
+                    "cost_usd": cost_usd,
+                    "tokens": required_tokens,
+                })
+
+            run_log = WorkflowRunLog(
+                workflow_id=workflow_id,
+                workflow_name=wf_name,
+                run_id=result.get("run_id") if isinstance(result, dict) else None,
+                run_type="node",
+                runner_id=current_user.id,
+                owner_id=owner_id,
+                is_shared_run=is_shared_run,
+                token_source=token_source_value,
+                charged_user_id=charged_user_id or current_user.id,
+                model_chain=json.dumps(model_chain, ensure_ascii=False) if model_chain else None,
+                tokens_total=required_tokens,
+                cost_usd_total=cost_usd,
+                node_id=node_id,
+                node_label=str(node_label),
+            )
+            db.add(run_log)
+
             await db.commit()
+
+            # Cleanup old logs
+            try:
+                await _cleanup_old_run_logs(workflow_id, db)
+                await db.commit()
+            except Exception as cleanup_err:
+                logger.warning(f"Run log cleanup note: {cleanup_err}")
 
         return result
     except HTTPException as e:

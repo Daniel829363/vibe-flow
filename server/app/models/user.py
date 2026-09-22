@@ -62,6 +62,7 @@ class User(Base):
             "avatar_url": self.avatar_url,
             "is_email_verified": self.is_email_verified,
             "google_id": self.google_id is not None,
+            "has_password": self.hashed_password is not None,
             "token_balance": round(self.token_balance or 0.0, 4),
             "is_superadmin": self.is_superadmin,
             "created_at": self.created_at.isoformat() if self.created_at else None,

@@ -507,8 +507,24 @@ async def delete_media_file(
     if not media:
         raise HTTPException(status_code=404, detail="Файл не найден")
 
-    if not current_user.is_superadmin and media.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="У вас нет прав на удаление этого файла")
+    if not current_user.is_superadmin:
+        if media.workflow_id:
+            wf_res = await db.execute(
+                select(WorkflowMeta).where(
+                    or_(
+                        WorkflowMeta.remote_workflow_id == media.workflow_id,
+                        WorkflowMeta.id == media.workflow_id,
+                    )
+                )
+            )
+            wf_meta = wf_res.scalar_one_or_none()
+            if not wf_meta or wf_meta.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Удаление медиафайлов процесса доступно только владельцу процесса",
+                )
+        elif media.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="У вас нет прав на удаление этого файла")
 
     if permanent:
         if media.url.startswith("/api/uploads/"):
@@ -542,8 +558,24 @@ async def restore_media_file(
     if not media:
         raise HTTPException(status_code=404, detail="Файл не найден")
 
-    if not current_user.is_superadmin and media.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="У вас нет прав на восстановление этого файла")
+    if not current_user.is_superadmin:
+        if media.workflow_id:
+            wf_res = await db.execute(
+                select(WorkflowMeta).where(
+                    or_(
+                        WorkflowMeta.remote_workflow_id == media.workflow_id,
+                        WorkflowMeta.id == media.workflow_id,
+                    )
+                )
+            )
+            wf_meta = wf_res.scalar_one_or_none()
+            if not wf_meta or wf_meta.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Восстановление медиафайлов процесса доступно только владельцу процесса",
+                )
+        elif media.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="У вас нет прав на восстановление этого файла")
 
     media.deleted_at = None
     await db.commit()
